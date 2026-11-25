@@ -255,4 +255,4 @@ if user_q := st.chat_input("Hỏi thêm về cách pha thuốc, lịch tưới h
             reply = f"Dựa trên thông số hiện tại ({ctx}), bạn nên ưu tiên thực hiện đúng lưu lượng tưới và khung thời gian xử lý dịch hại trong báo cáo phía trên; nếu thay đổi diện tích hoặc độ ẩm đất, hãy điều chỉnh thanh trượt ở mục 1 rồi bấm lại nút Kích hoạt AI Agent để tính toán lại chính xác."
         st.markdown(reply)
         st.session_state.messages.append({"role": "assistant", "content": reply})
-                    
+            
