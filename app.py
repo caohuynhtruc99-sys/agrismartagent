@@ -18,9 +18,8 @@ with st.sidebar:
     api_key = st.text_input("Gemini API Key", value=default_key, type="password")
     model_choice = st.selectbox(
         "Mô hình AI ưu tiên",
-        ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.0-flash"],
-        index=0,
-    )
+        ["gemini-3.8-flash", "gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.0-flash"],
+        
     st.caption("Đã tự động nạp khóa từ Secrets." if default_key else "Nhập API Key để dùng Gemini.")
 
 st.title("🌱 AGRI-SMART AI AGENT")
