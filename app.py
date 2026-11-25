@@ -14,35 +14,40 @@ except Exception:
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_available_models(key: str) -> list[str]:
-    """Tự động lấy danh sách các model Gemini đang hoạt động từ API Key."""
+    """Lấy danh sách các model Gemini khả dụng và ưu tiên bản ổn định."""
     c = genai.Client(api_key=key)
     models = []
+    excluded = ["embedding", "imagen", "veo", "aqa", "tts", "audio", "robotics", "computer", "image"]
     for m in c.models.list():
         name = getattr(m, "name", "").replace("models/", "")
         actions = getattr(m, "supported_actions", None) or []
         if "gemini" in name and (not actions or "generateContent" in actions):
-            if not any(x in name for x in ["embedding", "imagen", "veo", "aqa", "tts", "audio", "robotics", "computer"]):
+            if not any(x in name for x in excluded):
                 models.append(name)
-    flash_models = [x for x in models if "flash" in x and "lite" not in x]
-    other_models = [x for x in models if x not in flash_models]
-    return flash_models + other_models
+
+    preferred = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash", "gemini-2.0-flash-lite"]
+    ordered = [p for p in preferred if p in models]
+    for m in models:
+        if m not in ordered:
+            ordered.append(m)
+    return ordered
 
 with st.sidebar:
     st.header("⚙️ Cấu hình Hệ thống")
     api_key = st.text_input("Gemini API Key", value=default_key, type="password")
-    st.caption("Nếu đã cấu hình trong Streamlit Secrets, ô này sẽ tự động điền.")
+    st.caption("Đã tự động nạp khóa từ Streamlit Secrets." if default_key else "Nhập Gemini API Key để kích hoạt.")
 
 st.title("🌱 AGRI-SMART AI AGENT")
 st.caption("Tác tử AI Tự động Giám sát Cảm biến, Chẩn đoán Bệnh qua Ảnh & Điều phối Tưới Tiêu")
 
 if not api_key:
-    st.warning("Vui lòng nhập Gemini API Key ở thanh bên trái (chạm dấu >> góc trên bên trái) để kích hoạt AI Agent.")
+    st.warning("Vui lòng nhập Gemini API Key ở thanh bên trái để kích hoạt AI Agent.")
     st.stop()
 
 try:
     model_list = get_available_models(api_key)
 except Exception as e:
-    st.error(f"Không thể kết nối API Key. Vui lòng kiểm tra lại khóa: {e}")
+    st.error(f"Không thể kết nối API Key. Chi tiết: {e}")
     st.stop()
 
 if not model_list:
@@ -50,7 +55,7 @@ if not model_list:
     st.stop()
 
 with st.sidebar:
-    selected_model = st.selectbox("Mô hình AI (tự động cập nhật)", model_list, index=0)
+    selected_model = st.selectbox("Mô hình AI ưu tiên", model_list, index=0)
 
 client = genai.Client(api_key=api_key)
 
@@ -133,6 +138,26 @@ def forecast_economics(
     gain_vnd = round(saved_tons * unit_price, 1)
     return {"saved_yield_tons": saved_tons, "economic_gain_trieu_vnd": gain_vnd}
 
+def run_agent_with_fallback(contents, temperature: float = 0.2):
+    """Tự động thử lần lượt các mô hình khả dụng nếu gặp lỗi hạn mức hoặc không tương thích."""
+    candidates = [selected_model] + [m for m in model_list if m != selected_model]
+    last_err = None
+    for m_name in candidates[:5]:
+        try:
+            res = client.models.generate_content(
+                model=m_name,
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    tools=[calculate_irrigation, evaluate_disease_risk, forecast_economics],
+                    temperature=temperature,
+                ),
+            )
+            return res.text, m_name, None
+        except Exception as e:
+            last_err = e
+            continue
+    return None, None, last_err
+
 # ==========================================
 # 2. GIAO DIỆN NHẬP DỮ LIỆU CẢM BIẾN & ẢNH
 # ==========================================
@@ -166,7 +191,7 @@ with col2:
 # ==========================================
 
 if st.button("🚀 Kích hoạt AI Agent Phân tích & Điều phối", type="primary", use_container_width=True):
-    with st.spinner(f"AI Agent ({selected_model}) đang quan sát dữ liệu, gọi công cụ tính toán và lập kế hoạch..."):
+    with st.spinner("AI Agent đang quan sát dữ liệu, gọi công cụ tính toán và lập kế hoạch..."):
         vision_context = (
             "Hãy trực tiếp quan sát ảnh lá cây đính kèm để xác định tên bệnh và ước lượng mức độ nghiêm trọng (%)."
             if leaf_image
@@ -191,22 +216,19 @@ if st.button("🚀 Kích hoạt AI Agent Phân tích & Điều phối", type="pr
         """
 
         contents = [leaf_image, agent_prompt] if leaf_image else agent_prompt
-        response = client.models.generate_content(
-            model=selected_model,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                tools=[calculate_irrigation, evaluate_disease_risk, forecast_economics],
-                temperature=0.2,
-            ),
-        )
-        st.session_state["agent_report"] = response.text
-        st.session_state["sensor_summary"] = (
-            f"Cây {crop_type} ({area_ha}ha), ẩm đất {soil_moisture}%, nhiệt độ {temp_c}°C, ẩm KK {air_humidity}%, mưa {rain_forecast}mm."
-        )
+        report_text, used_model, err = run_agent_with_fallback(contents, temperature=0.2)
+        if err:
+            st.error(f"Không thể hoàn tất phân tích. Chi tiết lỗi: {err}")
+        else:
+            st.session_state["agent_report"] = report_text
+            st.session_state["used_model"] = used_model
+            st.session_state["sensor_summary"] = (
+                f"Cây {crop_type} ({area_ha}ha), ẩm đất {soil_moisture}%, nhiệt độ {temp_c}°C, ẩm KK {air_humidity}%, mưa {rain_forecast}mm."
+            )
 
 if "agent_report" in st.session_state:
     st.divider()
-    st.subheader("🧠 Kết quả Điều hành của AI Agent")
+    st.subheader(f"🧠 Kết quả Điều hành của AI Agent ({st.session_state.get('used_model', '')})")
     st.markdown(st.session_state["agent_report"])
 
 # ==========================================
@@ -229,14 +251,11 @@ if user_q := st.chat_input("Hỏi thêm về cách pha thuốc, lịch tưới h
 
     with st.chat_message("assistant"):
         context_prefix = st.session_state.get("sensor_summary", f"Cây {crop_type}, diện tích {area_ha}ha, ẩm đất {soil_moisture}%.")
-        chat_res = client.models.generate_content(
-            model=selected_model,
-            contents=f"Ngữ cảnh vườn hiện tại: {context_prefix}\nBáo cáo trước đó: {st.session_state.get('agent_report', 'Chưa chạy phân tích')}\nCâu hỏi của nông dân: {user_q}",
-            config=types.GenerateContentConfig(
-                tools=[calculate_irrigation, evaluate_disease_risk, forecast_economics],
-                temperature=0.3,
-            ),
-        )
-        st.markdown(chat_res.text)
-        st.session_state.messages.append({"role": "assistant", "content": chat_res.text})
-  
+        prompt_q = f"Ngữ cảnh vườn hiện tại: {context_prefix}\nBáo cáo trước đó: {st.session_state.get('agent_report', 'Chưa chạy phân tích')}\nCâu hỏi của nông dân: {user_q}"
+        reply_text, _, err_q = run_agent_with_fallback(prompt_q, temperature=0.3)
+        if err_q:
+            st.error(f"Lỗi phản hồi: {err_q}")
+        else:
+            st.markdown(reply_text)
+            st.session_state.messages.append({"role": "assistant", "content": reply_text})
+            
