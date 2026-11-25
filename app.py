@@ -5,7 +5,83 @@ from PIL import Image
 from google import genai
 from google.genai import types
 
-st.set_page_config(page_title="Agri-Smart AI Agent", page_icon="🌱", layout="wide")
+st.set_page_config(
+    page_title="Agri-Smart AI Agent | Cao Huỳnh Trực",
+    page_icon="🌱",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
+
+# ==========================================
+# CSS TÙY CHỈNH GIAO DIỆN VIP PRO
+# ==========================================
+st.markdown(
+    """
+    <style>
+    .hero-box {
+        background: linear-gradient(135deg, #064e3b 0%, #0f766e 50%, #1e3a8a 100%);
+        padding: 24px 28px;
+        border-radius: 16px;
+        border: 1px solid rgba(52, 211, 153, 0.35);
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+        margin-bottom: 18px;
+    }
+    .hero-badge {
+        display: inline-block;
+        background: rgba(16, 185, 129, 0.2);
+        color: #6ee7b7;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.8px;
+        padding: 4px 12px;
+        border-radius: 999px;
+        border: 1px solid rgba(110, 231, 183, 0.4);
+        margin-bottom: 10px;
+    }
+    .hero-title {
+        color: #ffffff;
+        font-size: 28px;
+        font-weight: 800;
+        margin: 0 0 6px 0;
+        letter-spacing: 0.4px;
+    }
+    .hero-sub {
+        color: #d1fae5;
+        font-size: 14px;
+        margin: 0 0 14px 0;
+    }
+    .author-pill {
+        display: inline-block;
+        background: rgba(15, 23, 42, 0.55);
+        color: #f8fafc;
+        font-size: 13px;
+        line-height: 1.5;
+        padding: 8px 14px;
+        border-radius: 10px;
+        border-left: 4px solid #34d399;
+    }
+    .section-card {
+        background: rgba(30, 41, 59, 0.45);
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        border-radius: 14px;
+        padding: 14px 18px;
+        margin-bottom: 12px;
+    }
+    .footer-vip {
+        margin-top: 32px;
+        padding: 16px 20px;
+        border-radius: 14px;
+        background: linear-gradient(90deg, rgba(6, 78, 59, 0.45), rgba(30, 58, 138, 0.45));
+        border: 1px solid rgba(52, 211, 153, 0.25);
+        text-align: center;
+        color: #e2e8f0;
+        font-size: 13px;
+        line-height: 1.6;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 default_key = ""
 try:
@@ -15,7 +91,7 @@ except Exception:
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_flash_models(key: str) -> list[str]:
-    """Tự động lấy danh sách các model Gemini Flash đang hoạt động từ API Key."""
+    """Lấy danh sách model Gemini Flash và ưu tiên bản ổn định tránh lỗi 503."""
     c = genai.Client(api_key=key)
     found = []
     blocked = ["embedding", "imagen", "veo", "aqa", "tts", "audio", "robotics", "computer", "image"]
@@ -25,17 +101,33 @@ def fetch_flash_models(key: str) -> list[str]:
         if "gemini" in name and "flash" in name and (not actions or "generateContent" in actions):
             if not any(b in name for b in blocked):
                 found.append(name)
-    return found or ["gemini-2.5-flash", "gemini-2.0-flash"]
+    stable = [x for x in found if "preview" not in x and "exp" not in x]
+    preview = [x for x in found if x not in stable]
+    return (stable + preview) or ["gemini-2.5-flash", "gemini-2.0-flash"]
 
 with st.sidebar:
     st.header("⚙️ Cấu hình Hệ thống")
     api_key = st.text_input("Gemini API Key", value=default_key, type="password")
     available_models = fetch_flash_models(api_key) if api_key else ["gemini-2.5-flash", "gemini-2.0-flash"]
     model_choice = st.selectbox("Mô hình AI ưu tiên", available_models, index=0)
-    st.caption("Đã tự động nạp khóa từ Secrets." if default_key else "Nhập API Key để dùng Gemini.")
+    st.caption("Đã nạp khóa từ Secrets." if default_key else "Nhập API Key để dùng Gemini.")
+    st.divider()
+    st.markdown("**Tác giả:** Cao Huỳnh Trực  \n**MSSV:** 058208004351  \n**Đơn vị:** Trường Đại học Giao thông vận tải Thành phố Hồ Chí Minh")
 
-st.title("🌱 AGRI-SMART AI AGENT")
-st.caption("Tác tử AI Giám sát Cảm biến, Chẩn đoán Bệnh qua Ảnh & Điều phối Tưới Tiêu")
+# ==========================================
+# BANNER ĐẦU TRANG + THÔNG TIN TÁC GIẢ
+# ==========================================
+st.markdown(
+    """
+    <div class="hero-box">
+        <div class="hero-badge">AI AGENT • IOT TELEMETRY • COMPUTER VISION</div>
+        <div class="hero-title">🌱 AGRI-SMART AI AGENT</div>
+        <div class="hero-sub">Hệ thống Tác tử AI Giám sát Cảm biến, Chẩn đoán Bệnh qua Ảnh Lá & Điều phối Tưới Tiêu Tự động</div>
+        <div class="author-pill">👨‍💻 Tác giả: <b>Cao Huỳnh Trực</b> &nbsp;|&nbsp; MSSV: <b>058208004351</b><br/>🎓 Trường Đại học Giao thông vận tải Thành phố Hồ Chí Minh</div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 # ==========================================
 # 1. CÁC CÔNG CỤ TÍNH TOÁN (FUNCTION CALLING)
@@ -101,24 +193,32 @@ def forecast_economics(
         "economic_gain_trieu_vnd": round(saved_tons * prices.get(crop_type, 10.0), 1),
     }
 
-def run_local_agent(crop_type, area_ha, soil_moisture, temp_c, air_humidity, rain_forecast, symptom, has_image):
-    """Chạy trực tiếp 3 công cụ của Agent khi API Gemini tạm chạm giới hạn lượt gọi."""
+def compute_telemetry_snapshot(crop_type, area_ha, soil_moisture, temp_c, air_humidity, rain_forecast, symptom):
     severity = 5 if "khỏe" in symptom.lower() else 68
     irr = calculate_irrigation(crop_type, area_ha, soil_moisture, temp_c, rain_forecast)
     dis = evaluate_disease_risk(symptom, severity, air_humidity, temp_c)
     eco = forecast_economics(crop_type, area_ha, dis["risk_score"], irr["recommended_water_m3"])
     payload = json.dumps(
         {
+            "author": "Cao Huỳnh Trực",
+            "university": "Trường Đại học Giao thông vận tải Thành phố Hồ Chí Minh",
             "crop": crop_type,
             "area_ha": area_ha,
             "irrigation": irr,
             "disease": {"name": symptom, "risk": dis["risk_level"], "window_h": dis["action_window_hours"]},
+            "economics": eco,
         },
         ensure_ascii=False,
         indent=2,
     )
+    return irr, dis, eco, payload
+
+def run_local_agent(crop_type, area_ha, soil_moisture, temp_c, air_humidity, rain_forecast, symptom, has_image):
+    irr, dis, eco, payload = compute_telemetry_snapshot(
+        crop_type, area_ha, soil_moisture, temp_c, air_humidity, rain_forecast, symptom
+    )
     bt = chr(96) * 3
-    img_note = "Đã nhận ảnh lá (API thị giác đang tạm giới hạn lượt, tính theo mức cảnh báo)." if has_image else "Phân tích theo thông số cảm biến & thực địa."
+    img_note = "Đã nhận ảnh lá (API thị giác đang tạm bận, tính theo mức cảnh báo)." if has_image else "Phân tích theo thông số cảm biến & thực địa."
     return (
         f"### 1. Cảnh báo Chủ động & Chẩn đoán Hình ảnh\n"
         f"* **Đối tượng:** {crop_type} ({area_ha} ha) — {img_note}\n"
@@ -141,7 +241,7 @@ def run_local_agent(crop_type, area_ha, soil_moisture, temp_c, air_humidity, rai
 col1, col2 = st.columns(2)
 
 with col1:
-    st.subheader("1. Dữ liệu Môi trường (IoT)")
+    st.markdown('<div class="section-card"><b>📡 1. Dữ liệu Môi trường (IoT Sensors)</b></div>', unsafe_allow_html=True)
     crop_type = st.selectbox("Giống cây trồng", ["Cà chua", "Sầu riêng", "Cà phê Robusta", "Lúa nước"])
     area_ha = st.number_input("Diện tích canh tác (ha)", min_value=0.1, max_value=100.0, value=2.5, step=0.1)
     soil_moisture = st.slider("Độ ẩm đất cảm biến (%)", 10, 100, 44)
@@ -150,7 +250,7 @@ with col1:
     rain_forecast = st.number_input("Dự báo mưa 24h tới (mm)", min_value=0, max_value=200, value=0)
 
 with col2:
-    st.subheader("2. Thị giác Máy tính (Chẩn đoán Lá)")
+    st.markdown('<div class="section-card"><b>🔬 2. Thị giác Máy tính (Chẩn đoán Lá)</b></div>', unsafe_allow_html=True)
     uploaded_img = st.file_uploader("Tải ảnh lá cây thật để AI quét bệnh", type=["jpg", "jpeg", "png"])
     if uploaded_img:
         leaf_image = Image.open(uploaded_img).convert("RGB")
@@ -166,7 +266,20 @@ with col2:
         )
 
 # ==========================================
-# 3. KÍCH HOẠT AI AGENT PHÂN TÍCH & ĐIỀU PHỐI
+# 3. THANH CHỈ SỐ KPI THỜI GIAN THỰC
+# ==========================================
+irr_now, dis_now, eco_now, json_now = compute_telemetry_snapshot(
+    crop_type, area_ha, soil_moisture, temp_c, air_humidity, rain_forecast, symptom_note
+)
+
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("Độ ẩm đất", f"{soil_moisture}%", f"{round(soil_moisture - irr_now['target_moisture_percent'], 1)}% so với chuẩn")
+m2.metric("Khí hậu vườn", f"{temp_c}°C", f"Ẩm KK {air_humidity}%")
+m3.metric("Nước tưới đề xuất", f"{irr_now['recommended_water_m3']} m³", f"{irr_now['duration_minutes']} phút mở van")
+m4.metric("Bảo toàn kinh tế", f"{eco_now['economic_gain_trieu_vnd']} Tr", f"+{eco_now['saved_yield_tons']} tấn")
+
+# ==========================================
+# 4. KÍCH HOẠT AI AGENT PHÂN TÍCH & ĐIỀU PHỐI
 # ==========================================
 
 if st.button("🚀 Kích hoạt AI Agent Phân tích & Điều phối", type="primary", use_container_width=True):
@@ -225,13 +338,29 @@ if st.button("🚀 Kích hoạt AI Agent Phân tích & Điều phối", type="pr
 
 if "agent_report" in st.session_state:
     st.divider()
-    st.subheader(f"🧠 Kết quả Điều hành — {st.session_state.get('run_mode', '')}")
+    st.subheader(f"🧠 Trung tâm Điều hành AI — {st.session_state.get('run_mode', '')}")
     if st.session_state.get("api_note"):
         st.caption(f"Trạng thái kết nối API: {st.session_state['api_note']}")
-    st.markdown(st.session_state["agent_report"])
+
+    tab1, tab2, tab3 = st.tabs(["📋 Báo cáo Phân tích AI", "📊 Biểu đồ Cảm biến", "🔌 Gói tin IoT / PLC"])
+    with tab1:
+        st.markdown(st.session_state["agent_report"])
+    with tab2:
+        st.write(f"**Đối chiếu thông số môi trường vườn {crop_type} ({area_ha} ha):**")
+        chart_data = {
+            "Giá trị đo": {
+                "Độ ẩm đất hiện tại (%)": soil_moisture,
+                "Độ ẩm đất chuẩn (%)": irr_now["target_moisture_percent"],
+                "Độ ẩm không khí (%)": air_humidity,
+                "Nhiệt độ (°C)": temp_c,
+            }
+        }
+        st.bar_chart(chart_data)
+    with tab3:
+        st.code(json_now, language="json")
 
 # ==========================================
-# 4. HỎI ĐÁP NGỮ CẢNH VỚI AGENT
+# 5. HỎI ĐÁP NGỮ CẢNH VỚI AGENT
 # ==========================================
 
 st.divider()
@@ -268,7 +397,20 @@ if user_q := st.chat_input("Hỏi thêm về cách pha thuốc, lịch tưới h
                 except Exception:
                     continue
         if not reply:
-            reply = f"Dựa trên thông số hiện tại ({ctx}), bạn nên ưu tiên thực hiện đúng lưu lượng tưới và khung thời gian xử lý dịch hại trong báo cáo phía trên; nếu thay đổi diện tích hoặc độ ẩm đất, hãy điều chỉnh thanh trượt ở mục 1 rồi bấm lại nút Kích hoạt AI Agent để tính toán lại chính xác."
+            reply = f"Dựa trên thông số hiện tại ({ctx}), bạn nên ưu tiên thực hiện đúng lưu lượng tưới ({irr_now['recommended_water_m3']} m³) và khung thời gian xử lý dịch hại trong báo cáo phía trên."
         st.markdown(reply)
         st.session_state.messages.append({"role": "assistant", "content": reply})
-        
+
+# ==========================================
+# CHÂN TRANG BẢN QUYỀN TÁC GIẢ
+# ==========================================
+st.markdown(
+    """
+    <div class="footer-vip">
+        <b>AGRI-SMART AI AGENT</b> — Hệ thống Điều phối Nông nghiệp Thông minh<br/>
+        Phát triển bởi: <b>Cao Huỳnh Trực</b> &nbsp;•&nbsp; MSSV: <b>058208004351</b><br/>
+        Trường Đại học Giao thông vận tải Thành phố Hồ Chí Minh
+    </div>
+    """,
+    unsafe_allow_html=True,
+    )
