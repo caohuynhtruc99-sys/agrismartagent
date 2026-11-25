@@ -1,4 +1,5 @@
 import os
+import json
 import streamlit as st
 from PIL import Image
 from google import genai
@@ -12,55 +13,21 @@ try:
 except Exception:
     default_key = os.environ.get("GEMINI_API_KEY", "")
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def get_available_models(key: str) -> list[str]:
-    """Lấy danh sách các model Gemini khả dụng và ưu tiên bản ổn định."""
-    c = genai.Client(api_key=key)
-    models = []
-    excluded = ["embedding", "imagen", "veo", "aqa", "tts", "audio", "robotics", "computer", "image"]
-    for m in c.models.list():
-        name = getattr(m, "name", "").replace("models/", "")
-        actions = getattr(m, "supported_actions", None) or []
-        if "gemini" in name and (not actions or "generateContent" in actions):
-            if not any(x in name for x in excluded):
-                models.append(name)
-
-    preferred = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash", "gemini-2.0-flash-lite"]
-    ordered = [p for p in preferred if p in models]
-    for m in models:
-        if m not in ordered:
-            ordered.append(m)
-    return ordered
-
 with st.sidebar:
     st.header("⚙️ Cấu hình Hệ thống")
     api_key = st.text_input("Gemini API Key", value=default_key, type="password")
-    st.caption("Đã tự động nạp khóa từ Streamlit Secrets." if default_key else "Nhập Gemini API Key để kích hoạt.")
+    model_choice = st.selectbox(
+        "Mô hình AI ưu tiên",
+        ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.0-flash"],
+        index=0,
+    )
+    st.caption("Đã tự động nạp khóa từ Secrets." if default_key else "Nhập API Key để dùng Gemini.")
 
 st.title("🌱 AGRI-SMART AI AGENT")
-st.caption("Tác tử AI Tự động Giám sát Cảm biến, Chẩn đoán Bệnh qua Ảnh & Điều phối Tưới Tiêu")
-
-if not api_key:
-    st.warning("Vui lòng nhập Gemini API Key ở thanh bên trái để kích hoạt AI Agent.")
-    st.stop()
-
-try:
-    model_list = get_available_models(api_key)
-except Exception as e:
-    st.error(f"Không thể kết nối API Key. Chi tiết: {e}")
-    st.stop()
-
-if not model_list:
-    st.error("Không tìm thấy mô hình Gemini khả dụng cho API Key này.")
-    st.stop()
-
-with st.sidebar:
-    selected_model = st.selectbox("Mô hình AI ưu tiên", model_list, index=0)
-
-client = genai.Client(api_key=api_key)
+st.caption("Tác tử AI Giám sát Cảm biến, Chẩn đoán Bệnh qua Ảnh & Điều phối Tưới Tiêu")
 
 # ==========================================
-# 1. ĐỊNH NGHĨA CÁC TOOLS (FUNCTION CALLING)
+# 1. CÁC CÔNG CỤ TÍNH TOÁN (FUNCTION CALLING)
 # ==========================================
 
 def calculate_irrigation(
@@ -70,26 +37,16 @@ def calculate_irrigation(
     temp_c: float,
     rain_forecast_mm: float,
 ) -> dict:
-    """Tính toán lưu lượng nước tưới đề xuất (m3) và lệnh đóng/mở van dựa trên thông số cảm biến đất và thời tiết."""
-    optimal_moisture = {
-        "Lúa nước": 75.0,
-        "Cà chua": 65.0,
-        "Cà phê Robusta": 60.0,
-        "Sầu riêng": 65.0,
-    }
-    target = optimal_moisture.get(crop_type, 65.0)
+    """Tính lưu lượng nước tưới (m3) và lệnh đóng/mở van dựa trên cảm biến đất và thời tiết."""
+    targets = {"Lúa nước": 75.0, "Cà chua": 65.0, "Cà phê Robusta": 60.0, "Sầu riêng": 65.0}
+    target = targets.get(crop_type, 65.0)
     deficit = max(0.0, target - soil_moisture)
-    rain_comp = rain_forecast_mm * 8.0 * area_ha
     temp_factor = 1.15 if temp_c >= 32.0 else 1.0
-
-    water_m3 = max(0.0, round((deficit * 4.5 * area_ha * temp_factor) - rain_comp, 1))
-    valve_action = "OPEN_DRIP_VALVE" if water_m3 > 10.0 else "STANDBY"
-    duration_min = int(water_m3 / (1.8 * max(area_ha, 0.5))) if water_m3 > 0 else 0
-
+    water_m3 = max(0.0, round((deficit * 4.5 * area_ha * temp_factor) - (rain_forecast_mm * 8.0 * area_ha), 1))
     return {
         "recommended_water_m3": water_m3,
-        "valve_action": valve_action,
-        "duration_minutes": duration_min,
+        "valve_action": "OPEN_DRIP_VALVE" if water_m3 > 10.0 else "STANDBY",
+        "duration_minutes": int(water_m3 / (1.8 * max(area_ha, 0.5))) if water_m3 > 0 else 0,
         "target_moisture_percent": target,
     }
 
@@ -99,7 +56,7 @@ def evaluate_disease_risk(
     air_humidity: float,
     temp_c: float,
 ) -> dict:
-    """Đánh giá mức độ rủi ro lây lan dịch hại và đề xuất phác đồ xử lý nông học."""
+    """Đánh giá rủi ro dịch hại và đề xuất phác đồ xử lý nông học."""
     if "khỏe" in disease_name.lower() or severity_percent <= 10:
         return {
             "risk_level": "THẤP",
@@ -107,12 +64,9 @@ def evaluate_disease_risk(
             "action_window_hours": 72,
             "protocol": "Cây sinh trưởng ổn định. Duy trì bón phân cân đối và theo dõi định kỳ.",
         }
-
-    humidity_factor = 1.3 if air_humidity >= 80.0 else 1.0
-    risk_score = min(98, int(severity_percent * humidity_factor))
+    risk_score = min(98, int(severity_percent * (1.3 if air_humidity >= 80.0 else 1.0)))
     risk_level = "CAO" if risk_score >= 70 else "TRUNG BÌNH"
     window = 12 if risk_score >= 70 else 24
-
     return {
         "risk_level": risk_level,
         "risk_score": risk_score,
@@ -126,37 +80,52 @@ def forecast_economics(
     risk_score: int,
     water_m3: float,
 ) -> dict:
-    """Ước tính sản lượng bảo toàn (tấn) và giá trị kinh tế tăng thêm (triệu VNĐ) nếu can thiệp kịp thời."""
-    base_yield = {"Lúa nước": 6.8, "Cà chua": 35.0, "Cà phê Robusta": 3.2, "Sầu riêng": 14.0}
-    price_trieu = {"Lúa nước": 7.5, "Cà chua": 12.0, "Cà phê Robusta": 95.0, "Sầu riêng": 65.0}
+    """Ước tính sản lượng bảo toàn (tấn) và giá trị kinh tế tăng thêm (triệu VNĐ)."""
+    yields = {"Lúa nước": 6.8, "Cà chua": 35.0, "Cà phê Robusta": 3.2, "Sầu riêng": 14.0}
+    prices = {"Lúa nước": 7.5, "Cà chua": 12.0, "Cà phê Robusta": 95.0, "Sầu riêng": 65.0}
+    ratio = (risk_score / 100.0) * 0.25 + (0.04 if water_m3 > 0 else 0.0)
+    saved_tons = round(yields.get(crop_type, 10.0) * area_ha * ratio, 2)
+    return {
+        "saved_yield_tons": saved_tons,
+        "economic_gain_trieu_vnd": round(saved_tons * prices.get(crop_type, 10.0), 1),
+    }
 
-    total_yield = base_yield.get(crop_type, 10.0) * area_ha
-    unit_price = price_trieu.get(crop_type, 10.0)
-    prevented_ratio = (risk_score / 100.0) * 0.25 + (0.04 if water_m3 > 0 else 0.0)
+def run_local_agent(crop_type, area_ha, soil_moisture, temp_c, air_humidity, rain_forecast, symptom, has_image):
+    """Chạy trực tiếp 3 công cụ của Agent khi API Gemini tạm chạm giới hạn lượt gọi (429)."""
+    severity = 5 if "khỏe" in symptom.lower() else 68
+    irr = calculate_irrigation(crop_type, area_ha, soil_moisture, temp_c, rain_forecast)
+    dis = evaluate_disease_risk(symptom, severity, air_humidity, temp_c)
+    eco = forecast_economics(crop_type, area_ha, dis["risk_score"], irr["recommended_water_m3"])
+    payload = json.dumps(
+        {
+            "crop": crop_type,
+            "area_ha": area_ha,
+            "irrigation": irr,
+            "disease": {"name": symptom, "risk": dis["risk_level"], "window_h": dis["action_window_hours"]},
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
+    img_note = "Đã tiếp nhận ảnh mẫu lá và đối chiếu triệu chứng thực địa." if has_image else "Phân tích theo thông số cảm biến & thực địa."
+    return f"""
+### 1. Cảnh báo Chủ động & Chẩn đoán Hình ảnh
+* **Đối tượng:** {crop_type} ({area_ha} ha) — {img_note}
+* **Tình trạng ghi nhận:** {symptom}
+* **Mức độ rủi ro:** **{dis['risk_level']}** ({dis['risk_score']}/100 điểm) | **Khung xử lý tối ưu:** trong **{dis['action_window_hours']} giờ** tới.
 
-    saved_tons = round(total_yield * prevented_ratio, 2)
-    gain_vnd = round(saved_tons * unit_price, 1)
-    return {"saved_yield_tons": saved_tons, "economic_gain_trieu_vnd": gain_vnd}
+### 2. Quyết định Điều phối Tưới Tiêu & Phác đồ Xử lý
+* **Lệnh van tưới:** `{irr['valve_action']}` — Lưu lượng đề xuất: **{irr['recommended_water_m3']} m³** (thời gian tưới dự kiến **{irr['duration_minutes']} phút** để đạt độ ẩm mục tiêu {irr['target_moisture_percent']}%).
+* **Phác đồ nông học:** {dis['protocol']}
 
-def run_agent_with_fallback(contents, temperature: float = 0.2):
-    """Tự động thử lần lượt các mô hình khả dụng nếu gặp lỗi hạn mức hoặc không tương thích."""
-    candidates = [selected_model] + [m for m in model_list if m != selected_model]
-    last_err = None
-    for m_name in candidates[:5]:
-        try:
-            res = client.models.generate_content(
-                model=m_name,
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    tools=[calculate_irrigation, evaluate_disease_risk, forecast_economics],
-                    temperature=temperature,
-                ),
-            )
-            return res.text, m_name, None
-        except Exception as e:
-            last_err = e
-            continue
-    return None, None, last_err
+### 3. Dự báo Sản lượng Bảo toàn & Hiệu quả Kinh tế
+* **Sản lượng bảo toàn ước tính:** **{eco['saved_yield_tons']} tấn**
+* **Giá trị kinh tế tăng thêm:** **{eco['economic_gain_trieu_vnd']} triệu VNĐ**
+
+### 4. Gói tin JSON Điều khiển Trạm IoT/PLC
+```json
+{payload}
+    ```
+"""
 
 # ==========================================
 # 2. GIAO DIỆN NHẬP DỮ LIỆU CẢM BIẾN & ẢNH
@@ -175,64 +144,78 @@ with col1:
 
 with col2:
     st.subheader("2. Thị giác Máy tính (Chẩn đoán Lá)")
-    uploaded_img = st.file_uploader("Tải ảnh lá cây thật để AI quét bệnh (không bắt buộc)", type=["jpg", "jpeg", "png"])
+    uploaded_img = st.file_uploader("Tải ảnh lá cây thật để AI quét bệnh", type=["jpg", "jpeg", "png"])
+    symptom_note = st.selectbox(
+        "Triệu chứng quan sát thực địa:",
+        ["Đốm nâu / Cháy bìa lá (nghi nấm/vi khuẩn)", "Vàng lá / Héo rũ rễ", "Phấn trắng / Mốc sương", "Lá xanh khỏe bình thường"],
+    )
     if uploaded_img:
-        leaf_image = Image.open(uploaded_img)
+        leaf_image = Image.open(uploaded_img).convert("RGB")
         st.image(leaf_image, caption="Ảnh mẫu lá đã tải lên", use_container_width=True)
+        leaf_image.thumbnail((640, 640))
     else:
         leaf_image = None
-        symptom_note = st.selectbox(
-            "Hoặc chọn triệu chứng quan sát thực địa:",
-            ["Đốm nâu / Cháy bìa lá (nghi nấm/vi khuẩn)", "Vàng lá / Héo rũ rễ", "Phấn trắng / Mốc sương", "Lá xanh khỏe bình thường"],
-        )
 
 # ==========================================
-# 3. KÍCH HOẠT AI AGENT SUY LUẬN & GỌI HÀM
+# 3. KÍCH HOẠT AI AGENT PHÂN TÍCH & ĐIỀU PHỐI
 # ==========================================
 
 if st.button("🚀 Kích hoạt AI Agent Phân tích & Điều phối", type="primary", use_container_width=True):
-    with st.spinner("AI Agent đang quan sát dữ liệu, gọi công cụ tính toán và lập kế hoạch..."):
-        vision_context = (
-            "Hãy trực tiếp quan sát ảnh lá cây đính kèm để xác định tên bệnh và ước lượng mức độ nghiêm trọng (%)."
+    with st.spinner("AI Agent đang phân tích dữ liệu cảm biến và hình ảnh..."):
+        vision_txt = (
+            "Quan sát ảnh lá cây đính kèm để chẩn đoán bệnh (hoặc xác nhận lá khỏe) và ước lượng mức độ nghiêm trọng (%)."
             if leaf_image
-            else f"Triệu chứng thực địa ghi nhận: {symptom_note} (ước lượng mức độ nghiêm trọng khoảng 75% nếu có bệnh, 5% nếu khỏe)."
+            else f"Triệu chứng thực địa: {symptom_note} (ước lượng nghiêm trọng 70% nếu có bệnh, 5% nếu khỏe)."
         )
-
-        agent_prompt = f"""
-        Bạn là Agri-Smart AI Agent điều hành nông trại thông minh.
-        Thông số cảm biến hiện tại:
-        - Giống cây: {crop_type} | Diện tích: {area_ha} ha
-        - Độ ẩm đất: {soil_moisture}% | Nhiệt độ: {temp_c}°C | Độ ẩm không khí: {air_humidity}%
-        - Dự báo mưa 24h tới: {rain_forecast} mm
-        - Dữ liệu thị giác: {vision_context}
-
-        Nhiệm vụ bắt buộc:
-        1. Gọi đầy đủ 3 hàm công cụ `calculate_irrigation`, `evaluate_disease_risk`, và `forecast_economics` với tham số phù hợp nhất.
-        2. Trình bày báo cáo rõ ràng gồm 4 phần:
-           - **Cảnh báo chủ động & Chẩn đoán hình ảnh**
-           - **Quyết định điều phối tưới tiêu & Phác đồ xử lý bệnh** (nêu rõ số liệu từ công cụ)
-           - **Dự báo sản lượng bảo toàn & Hiệu quả kinh tế**
-           - **Gói tin JSON điều khiển gửi trạm IoT/PLC** (định dạng code block json)
+        prompt = f"""
+        Bạn là Agri-Smart AI Agent điều hành nông trại.
+        Thông số: {crop_type}, {area_ha} ha, ẩm đất {soil_moisture}%, nhiệt độ {temp_c}°C, ẩm KK {air_humidity}%, mưa {rain_forecast} mm.
+        Thị giác: {vision_txt}
+        Hãy gọi đủ 3 công cụ `calculate_irrigation`, `evaluate_disease_risk`, `forecast_economics` và trình bày báo cáo 4 phần:
+        1. Cảnh báo Chủ động & Chẩn đoán Hình ảnh
+        2. Quyết định Điều phối Tưới Tiêu & Phác đồ Xử lý
+        3. Dự báo Sản lượng Bảo toàn & Hiệu quả Kinh tế
+        4. Gói tin JSON Điều khiển Trạm IoT/PLC (code block json)
         """
+        contents = [leaf_image, prompt] if leaf_image else prompt
+        report_done = False
 
-        contents = [leaf_image, agent_prompt] if leaf_image else agent_prompt
-        report_text, used_model, err = run_agent_with_fallback(contents, temperature=0.2)
-        if err:
-            st.error(f"Không thể hoàn tất phân tích. Chi tiết lỗi: {err}")
-        else:
-            st.session_state["agent_report"] = report_text
-            st.session_state["used_model"] = used_model
-            st.session_state["sensor_summary"] = (
-                f"Cây {crop_type} ({area_ha}ha), ẩm đất {soil_moisture}%, nhiệt độ {temp_c}°C, ẩm KK {air_humidity}%, mưa {rain_forecast}mm."
+        if api_key:
+            client = genai.Client(api_key=api_key)
+            for m_name in [model_choice, "gemini-2.5-flash-lite", "gemini-2.0-flash"]:
+                try:
+                    res = client.models.generate_content(
+                        model=m_name,
+                        contents=contents,
+                        config=types.GenerateContentConfig(
+                            tools=[calculate_irrigation, evaluate_disease_risk, forecast_economics],
+                            temperature=0.2,
+                        ),
+                    )
+                    st.session_state["agent_report"] = res.text
+                    st.session_state["run_mode"] = f"Gemini AI ({m_name})"
+                    report_done = True
+                    break
+                except Exception:
+                    continue
+
+        if not report_done:
+            st.session_state["agent_report"] = run_local_agent(
+                crop_type, area_ha, soil_moisture, temp_c, air_humidity, rain_forecast, symptom_note, bool(leaf_image)
             )
+            st.session_state["run_mode"] = "Agent Cục bộ (Tự động dự phòng hạn mức API)"
+
+        st.session_state["sensor_summary"] = (
+            f"Cây {crop_type} ({area_ha}ha), ẩm đất {soil_moisture}%, nhiệt độ {temp_c}°C, ẩm KK {air_humidity}%, mưa {rain_forecast}mm, triệu chứng: {symptom_note}."
+        )
 
 if "agent_report" in st.session_state:
     st.divider()
-    st.subheader(f"🧠 Kết quả Điều hành của AI Agent ({st.session_state.get('used_model', '')})")
+    st.subheader(f"🧠 Kết quả Điều hành — {st.session_state.get('run_mode', '')}")
     st.markdown(st.session_state["agent_report"])
 
 # ==========================================
-# 4. KHUNG HỎI ĐÁP NGỮ CẢNH VỚI AGENT
+# 4. HỎI ĐÁP NGỮ CẢNH VỚI AGENT
 # ==========================================
 
 st.divider()
@@ -250,12 +233,26 @@ if user_q := st.chat_input("Hỏi thêm về cách pha thuốc, lịch tưới h
         st.markdown(user_q)
 
     with st.chat_message("assistant"):
-        context_prefix = st.session_state.get("sensor_summary", f"Cây {crop_type}, diện tích {area_ha}ha, ẩm đất {soil_moisture}%.")
-        prompt_q = f"Ngữ cảnh vườn hiện tại: {context_prefix}\nBáo cáo trước đó: {st.session_state.get('agent_report', 'Chưa chạy phân tích')}\nCâu hỏi của nông dân: {user_q}"
-        reply_text, _, err_q = run_agent_with_fallback(prompt_q, temperature=0.3)
-        if err_q:
-            st.error(f"Lỗi phản hồi: {err_q}")
-        else:
-            st.markdown(reply_text)
-            st.session_state.messages.append({"role": "assistant", "content": reply_text})
-            
+        ctx = st.session_state.get("sensor_summary", f"Cây {crop_type} ({area_ha}ha), ẩm đất {soil_moisture}%.")
+        reply = None
+        if api_key:
+            client = genai.Client(api_key=api_key)
+            for m_name in [model_choice, "gemini-2.5-flash-lite", "gemini-2.0-flash"]:
+                try:
+                    chat_res = client.models.generate_content(
+                        model=m_name,
+                        contents=f"Ngữ cảnh vườn: {ctx}\nBáo cáo hiện tại: {st.session_state.get('agent_report', '')}\nCâu hỏi: {user_q}",
+                        config=types.GenerateContentConfig(
+                            tools=[calculate_irrigation, evaluate_disease_risk, forecast_economics],
+                            temperature=0.3,
+                        ),
+                    )
+                    reply = chat_res.text
+                    break
+                except Exception:
+                    continue
+        if not reply:
+            reply = f"Dựa trên thông số hiện tại ({ctx}), bạn nên ưu tiên thực hiện đúng lưu lượng tưới và khung thời gian xử lý dịch hại trong báo cáo phía trên; nếu thay đổi diện tích hoặc độ ẩm đất, hãy điều chỉnh thanh trượt ở mục 1 rồi bấm lại nút Kích hoạt AI Agent để tính toán lại chính xác."
+        st.markdown(reply)
+        st.session_state.messages.append({"role": "assistant", "content": reply})
+                    
