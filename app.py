@@ -16,10 +16,7 @@ except Exception:
 with st.sidebar:
     st.header("⚙️ Cấu hình Hệ thống")
     api_key = st.text_input("Gemini API Key", value=default_key, type="password")
-    model_choice = st.selectbox(
-        "Mô hình AI ưu tiên",
-        ["gemini-3.8-flash", "gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.0-flash"],
-        
+    model_choice = st.selectbox("Mô hình AI ưu tiên", ["gemini-3.8-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"], index=0)
     st.caption("Đã tự động nạp khóa từ Secrets." if default_key else "Nhập API Key để dùng Gemini.")
 
 st.title("🌱 AGRI-SMART AI AGENT")
@@ -105,26 +102,22 @@ def run_local_agent(crop_type, area_ha, soil_moisture, temp_c, air_humidity, rai
         ensure_ascii=False,
         indent=2,
     )
+    bt = chr(96) * 3
     img_note = "Đã tiếp nhận ảnh mẫu lá và đối chiếu triệu chứng thực địa." if has_image else "Phân tích theo thông số cảm biến & thực địa."
-    return f"""
-### 1. Cảnh báo Chủ động & Chẩn đoán Hình ảnh
-* **Đối tượng:** {crop_type} ({area_ha} ha) — {img_note}
-* **Tình trạng ghi nhận:** {symptom}
-* **Mức độ rủi ro:** **{dis['risk_level']}** ({dis['risk_score']}/100 điểm) | **Khung xử lý tối ưu:** trong **{dis['action_window_hours']} giờ** tới.
-
-### 2. Quyết định Điều phối Tưới Tiêu & Phác đồ Xử lý
-* **Lệnh van tưới:** `{irr['valve_action']}` — Lưu lượng đề xuất: **{irr['recommended_water_m3']} m³** (thời gian tưới dự kiến **{irr['duration_minutes']} phút** để đạt độ ẩm mục tiêu {irr['target_moisture_percent']}%).
-* **Phác đồ nông học:** {dis['protocol']}
-
-### 3. Dự báo Sản lượng Bảo toàn & Hiệu quả Kinh tế
-* **Sản lượng bảo toàn ước tính:** **{eco['saved_yield_tons']} tấn**
-* **Giá trị kinh tế tăng thêm:** **{eco['economic_gain_trieu_vnd']} triệu VNĐ**
-
-### 4. Gói tin JSON Điều khiển Trạm IoT/PLC
-```json
-{payload}
-    ```
-"""
+    return (
+        f"### 1. Cảnh báo Chủ động & Chẩn đoán Hình ảnh\n"
+        f"* **Đối tượng:** {crop_type} ({area_ha} ha) — {img_note}\n"
+        f"* **Tình trạng ghi nhận:** {symptom}\n"
+        f"* **Mức độ rủi ro:** **{dis['risk_level']}** ({dis['risk_score']}/100 điểm) | **Khung xử lý tối ưu:** trong **{dis['action_window_hours']} giờ** tới.\n\n"
+        f"### 2. Quyết định Điều phối Tưới Tiêu & Phác đồ Xử lý\n"
+        f"* **Lệnh van tưới:** `{irr['valve_action']}` — Lưu lượng đề xuất: **{irr['recommended_water_m3']} m³** (thời gian tưới dự kiến **{irr['duration_minutes']} phút** để đạt độ ẩm mục tiêu {irr['target_moisture_percent']}%).\n"
+        f"* **Phác đồ nông học:** {dis['protocol']}\n\n"
+        f"### 3. Dự báo Sản lượng Bảo toàn & Hiệu quả Kinh tế\n"
+        f"* **Sản lượng bảo toàn ước tính:** **{eco['saved_yield_tons']} tấn**\n"
+        f"* **Giá trị kinh tế tăng thêm:** **{eco['economic_gain_trieu_vnd']} triệu VNĐ**\n\n"
+        f"### 4. Gói tin JSON Điều khiển Trạm IoT/PLC\n"
+        f"{bt}json\n{payload}\n{bt}\n"
+    )
 
 # ==========================================
 # 2. GIAO DIỆN NHẬP DỮ LIỆU CẢM BIẾN & ẢNH
@@ -166,22 +159,23 @@ if st.button("🚀 Kích hoạt AI Agent Phân tích & Điều phối", type="pr
             if leaf_image
             else f"Triệu chứng thực địa: {symptom_note} (ước lượng nghiêm trọng 70% nếu có bệnh, 5% nếu khỏe)."
         )
-        prompt = f"""
-        Bạn là Agri-Smart AI Agent điều hành nông trại.
-        Thông số: {crop_type}, {area_ha} ha, ẩm đất {soil_moisture}%, nhiệt độ {temp_c}°C, ẩm KK {air_humidity}%, mưa {rain_forecast} mm.
-        Thị giác: {vision_txt}
-        Hãy gọi đủ 3 công cụ `calculate_irrigation`, `evaluate_disease_risk`, `forecast_economics` và trình bày báo cáo 4 phần:
-        1. Cảnh báo Chủ động & Chẩn đoán Hình ảnh
-        2. Quyết định Điều phối Tưới Tiêu & Phác đồ Xử lý
-        3. Dự báo Sản lượng Bảo toàn & Hiệu quả Kinh tế
-        4. Gói tin JSON Điều khiển Trạm IoT/PLC (code block json)
-        """
+        prompt = (
+            f"Bạn là Agri-Smart AI Agent điều hành nông trại.\n"
+            f"Thông số: {crop_type}, {area_ha} ha, ẩm đất {soil_moisture}%, nhiệt độ {temp_c}°C, ẩm KK {air_humidity}%, mưa {rain_forecast} mm.\n"
+            f"Thị giác: {vision_txt}\n"
+            f"Hãy gọi đủ 3 công cụ calculate_irrigation, evaluate_disease_risk, forecast_economics và trình bày báo cáo 4 phần:\n"
+            f"1. Cảnh báo Chủ động & Chẩn đoán Hình ảnh\n"
+            f"2. Quyết định Điều phối Tưới Tiêu & Phác đồ Xử lý\n"
+            f"3. Dự báo Sản lượng Bảo toàn & Hiệu quả Kinh tế\n"
+            f"4. Gói tin JSON Điều khiển Trạm IoT/PLC (code block json)\n"
+        )
         contents = [leaf_image, prompt] if leaf_image else prompt
         report_done = False
 
         if api_key:
             client = genai.Client(api_key=api_key)
-            for m_name in [model_choice, "gemini-2.5-flash-lite", "gemini-2.0-flash"]:
+            candidates = list(dict.fromkeys([model_choice, "gemini-3.8-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"]))
+            for m_name in candidates:
                 try:
                     res = client.models.generate_content(
                         model=m_name,
@@ -236,7 +230,8 @@ if user_q := st.chat_input("Hỏi thêm về cách pha thuốc, lịch tưới h
         reply = None
         if api_key:
             client = genai.Client(api_key=api_key)
-            for m_name in [model_choice, "gemini-2.5-flash-lite", "gemini-2.0-flash"]:
+            candidates = list(dict.fromkeys([model_choice, "gemini-3.8-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"]))
+            for m_name in candidates:
                 try:
                     chat_res = client.models.generate_content(
                         model=m_name,
