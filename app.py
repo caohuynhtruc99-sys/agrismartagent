@@ -13,10 +13,25 @@ try:
 except Exception:
     default_key = os.environ.get("GEMINI_API_KEY", "")
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_flash_models(key: str) -> list[str]:
+    """Tự động lấy danh sách các model Gemini Flash đang hoạt động từ API Key."""
+    c = genai.Client(api_key=key)
+    found = []
+    blocked = ["embedding", "imagen", "veo", "aqa", "tts", "audio", "robotics", "computer", "image"]
+    for m in c.models.list():
+        name = getattr(m, "name", "").replace("models/", "")
+        actions = getattr(m, "supported_actions", None) or []
+        if "gemini" in name and "flash" in name and (not actions or "generateContent" in actions):
+            if not any(b in name for b in blocked):
+                found.append(name)
+    return found or ["gemini-2.5-flash", "gemini-2.0-flash"]
+
 with st.sidebar:
     st.header("⚙️ Cấu hình Hệ thống")
     api_key = st.text_input("Gemini API Key", value=default_key, type="password")
-    model_choice = st.selectbox("Mô hình AI ưu tiên", ["gemini-3.8-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"], index=0)
+    available_models = fetch_flash_models(api_key) if api_key else ["gemini-2.5-flash", "gemini-2.0-flash"]
+    model_choice = st.selectbox("Mô hình AI ưu tiên", available_models, index=0)
     st.caption("Đã tự động nạp khóa từ Secrets." if default_key else "Nhập API Key để dùng Gemini.")
 
 st.title("🌱 AGRI-SMART AI AGENT")
@@ -87,7 +102,7 @@ def forecast_economics(
     }
 
 def run_local_agent(crop_type, area_ha, soil_moisture, temp_c, air_humidity, rain_forecast, symptom, has_image):
-    """Chạy trực tiếp 3 công cụ của Agent khi API Gemini tạm chạm giới hạn lượt gọi (429)."""
+    """Chạy trực tiếp 3 công cụ của Agent khi API Gemini tạm chạm giới hạn lượt gọi."""
     severity = 5 if "khỏe" in symptom.lower() else 68
     irr = calculate_irrigation(crop_type, area_ha, soil_moisture, temp_c, rain_forecast)
     dis = evaluate_disease_risk(symptom, severity, air_humidity, temp_c)
@@ -103,7 +118,7 @@ def run_local_agent(crop_type, area_ha, soil_moisture, temp_c, air_humidity, rai
         indent=2,
     )
     bt = chr(96) * 3
-    img_note = "Đã tiếp nhận ảnh mẫu lá và đối chiếu triệu chứng thực địa." if has_image else "Phân tích theo thông số cảm biến & thực địa."
+    img_note = "Đã nhận ảnh lá (API thị giác đang tạm giới hạn lượt, tính theo mức cảnh báo)." if has_image else "Phân tích theo thông số cảm biến & thực địa."
     return (
         f"### 1. Cảnh báo Chủ động & Chẩn đoán Hình ảnh\n"
         f"* **Đối tượng:** {crop_type} ({area_ha} ha) — {img_note}\n"
@@ -127,7 +142,7 @@ col1, col2 = st.columns(2)
 
 with col1:
     st.subheader("1. Dữ liệu Môi trường (IoT)")
-    crop_type = st.selectbox("Giống cây trồng", ["Sầu riêng", "Cà phê Robusta", "Lúa nước", "Cà chua"])
+    crop_type = st.selectbox("Giống cây trồng", ["Cà chua", "Sầu riêng", "Cà phê Robusta", "Lúa nước"])
     area_ha = st.number_input("Diện tích canh tác (ha)", min_value=0.1, max_value=100.0, value=2.5, step=0.1)
     soil_moisture = st.slider("Độ ẩm đất cảm biến (%)", 10, 100, 44)
     temp_c = st.slider("Nhiệt độ không khí (°C)", 15, 45, 32)
@@ -137,25 +152,27 @@ with col1:
 with col2:
     st.subheader("2. Thị giác Máy tính (Chẩn đoán Lá)")
     uploaded_img = st.file_uploader("Tải ảnh lá cây thật để AI quét bệnh", type=["jpg", "jpeg", "png"])
-    symptom_note = st.selectbox(
-        "Triệu chứng quan sát thực địa:",
-        ["Đốm nâu / Cháy bìa lá (nghi nấm/vi khuẩn)", "Vàng lá / Héo rũ rễ", "Phấn trắng / Mốc sương", "Lá xanh khỏe bình thường"],
-    )
     if uploaded_img:
         leaf_image = Image.open(uploaded_img).convert("RGB")
-        st.image(leaf_image, caption="Ảnh mẫu lá đã tải lên", use_container_width=True)
+        st.image(leaf_image, caption="Ảnh mẫu lá đã tải lên", width=260)
+        st.info("📷 Đã nhận ảnh lá. Bấm nút Kích hoạt ngay bên dưới để AI quét bệnh từ ảnh.")
         leaf_image.thumbnail((640, 640))
+        symptom_note = "Nghi ngờ nhiễm bệnh qua ảnh mẫu thực địa"
     else:
         leaf_image = None
+        symptom_note = st.selectbox(
+            "Hoặc chọn triệu chứng quan sát thực địa:",
+            ["Đốm nâu / Cháy bìa lá (nghi nấm/vi khuẩn)", "Vàng lá / Héo rũ rễ", "Phấn trắng / Mốc sương", "Lá xanh khỏe bình thường"],
+        )
 
 # ==========================================
 # 3. KÍCH HOẠT AI AGENT PHÂN TÍCH & ĐIỀU PHỐI
 # ==========================================
 
 if st.button("🚀 Kích hoạt AI Agent Phân tích & Điều phối", type="primary", use_container_width=True):
-    with st.spinner("AI Agent đang phân tích dữ liệu cảm biến và hình ảnh..."):
+    with st.spinner("AI Agent đang quét ảnh lá, tính toán thủy lợi và lập kế hoạch..."):
         vision_txt = (
-            "Quan sát ảnh lá cây đính kèm để chẩn đoán bệnh (hoặc xác nhận lá khỏe) và ước lượng mức độ nghiêm trọng (%)."
+            "Hãy trực tiếp quan sát ảnh lá cây đính kèm để nhận diện chính xác tên bệnh (ví dụ: bệnh sương mai, đốm lá, thán thư... hoặc xác nhận lá khỏe) và ước lượng mức độ nghiêm trọng (%)."
             if leaf_image
             else f"Triệu chứng thực địa: {symptom_note} (ước lượng nghiêm trọng 70% nếu có bệnh, 5% nếu khỏe)."
         )
@@ -171,10 +188,11 @@ if st.button("🚀 Kích hoạt AI Agent Phân tích & Điều phối", type="pr
         )
         contents = [leaf_image, prompt] if leaf_image else prompt
         report_done = False
+        last_err = ""
 
         if api_key:
             client = genai.Client(api_key=api_key)
-            candidates = list(dict.fromkeys([model_choice, "gemini-3.8-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"]))
+            candidates = list(dict.fromkeys([model_choice] + available_models[:3]))
             for m_name in candidates:
                 try:
                     res = client.models.generate_content(
@@ -187,24 +205,29 @@ if st.button("🚀 Kích hoạt AI Agent Phân tích & Điều phối", type="pr
                     )
                     st.session_state["agent_report"] = res.text
                     st.session_state["run_mode"] = f"Gemini AI ({m_name})"
+                    st.session_state["api_note"] = ""
                     report_done = True
                     break
-                except Exception:
+                except Exception as e:
+                    last_err = str(e)
                     continue
 
         if not report_done:
             st.session_state["agent_report"] = run_local_agent(
                 crop_type, area_ha, soil_moisture, temp_c, air_humidity, rain_forecast, symptom_note, bool(leaf_image)
             )
-            st.session_state["run_mode"] = "Agent Cục bộ (Tự động dự phòng hạn mức API)"
+            st.session_state["run_mode"] = "Agent Cục bộ (Dự phòng)"
+            st.session_state["api_note"] = last_err[:160]
 
         st.session_state["sensor_summary"] = (
-            f"Cây {crop_type} ({area_ha}ha), ẩm đất {soil_moisture}%, nhiệt độ {temp_c}°C, ẩm KK {air_humidity}%, mưa {rain_forecast}mm, triệu chứng: {symptom_note}."
+            f"Cây {crop_type} ({area_ha}ha), ẩm đất {soil_moisture}%, nhiệt độ {temp_c}°C, ẩm KK {air_humidity}%, mưa {rain_forecast}mm."
         )
 
 if "agent_report" in st.session_state:
     st.divider()
     st.subheader(f"🧠 Kết quả Điều hành — {st.session_state.get('run_mode', '')}")
+    if st.session_state.get("api_note"):
+        st.caption(f"Trạng thái kết nối API: {st.session_state['api_note']}")
     st.markdown(st.session_state["agent_report"])
 
 # ==========================================
@@ -230,8 +253,7 @@ if user_q := st.chat_input("Hỏi thêm về cách pha thuốc, lịch tưới h
         reply = None
         if api_key:
             client = genai.Client(api_key=api_key)
-            candidates = list(dict.fromkeys([model_choice, "gemini-3.8-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"]))
-            for m_name in candidates:
+            for m_name in list(dict.fromkeys([model_choice] + available_models[:3])):
                 try:
                     chat_res = client.models.generate_content(
                         model=m_name,
@@ -249,4 +271,4 @@ if user_q := st.chat_input("Hỏi thêm về cách pha thuốc, lịch tưới h
             reply = f"Dựa trên thông số hiện tại ({ctx}), bạn nên ưu tiên thực hiện đúng lưu lượng tưới và khung thời gian xử lý dịch hại trong báo cáo phía trên; nếu thay đổi diện tích hoặc độ ẩm đất, hãy điều chỉnh thanh trượt ở mục 1 rồi bấm lại nút Kích hoạt AI Agent để tính toán lại chính xác."
         st.markdown(reply)
         st.session_state.messages.append({"role": "assistant", "content": reply})
-                    
+        
