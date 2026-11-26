@@ -227,13 +227,45 @@ if st.button("▶️ Chạy kiểm thử Gemini", use_container_width=True):
 
         all_ok = all(r[1] for r in results)
         (st.success if all_ok else st.error)("Gemini hoạt động tốt." if all_ok else "Có mục chưa đạt, xem chi tiết bên dưới.")
-        st.dataframe([{"Mục": a, "Kết quả": "✅ ĐẠT" if b else "❌ KHÔNG ĐẠT", "Chi tiết": c} for a, b, c in results],
-                     use_container_width=True, hide_index=True)
+        st.table([{"Mục": a, "Kết quả": "✅ ĐẠT" if b else "❌ KHÔNG ĐẠT", "Chi tiết": c} for a, b, c in results])
         st.caption("Lưu ý: ảnh thử là ảnh vẽ giả, chỉ kiểm tra đường truyền và định dạng JSON, không đánh giá độ chính xác chẩn đoán.")
+
+st.subheader("Tìm mô hình Gemini dùng được")
+st.caption("Thử gọi lần lượt các mô hình flash trong tài khoản của bạn, rồi cho biết mô hình nào trả lời được.")
+if st.button("🔍 Dò mô hình dùng được", use_container_width=True):
+    if not api_key:
+        st.error("Chưa có API key.")
+    else:
+        from google import genai
+        try:
+            client = genai.Client(api_key=api_key)
+            names = [getattr(m, "name", "").replace("models/", "") for m in client.models.list()]
+            skip = ["image", "tts", "audio", "embedding", "live", "robotics", "computer", "imagen", "veo", "aqa", "native"]
+            flash = [n for n in names if "gemini" in n and "flash" in n and not any(k in n for k in skip)]
+            cands = list(dict.fromkeys(["gemini-flash-latest"] + flash))[:10]
+            rows = []
+            prog = st.progress(0.0)
+            for i, n in enumerate(cands):
+                try:
+                    out = client.models.generate_content(model=n, contents="Trả lời đúng một từ: OK")
+                    ok = bool(out.text)
+                    rows.append({"Mô hình": n, "Kết quả": "✅ DÙNG ĐƯỢC" if ok else "❌ rỗng", "Ghi chú": (out.text or "").strip()[:30]})
+                except Exception as e:
+                    msg = str(e)
+                    rows.append({"Mô hình": n, "Kết quả": "❌ LỖI", "Ghi chú": msg[:120]})
+                prog.progress((i + 1) / len(cands))
+            st.table(rows)
+            good = [r["Mô hình"] for r in rows if r["Kết quả"].startswith("✅")]
+            if good:
+                st.success("Mô hình dùng được: " + ", ".join(good))
+            else:
+                st.error("Không mô hình nào trả lời được. Xem cột Ghi chú (có thể do hạn mức hoặc quyền của khóa).")
+        except Exception as e:
+            st.error(f"Không liệt kê được mô hình: {str(e)[:200]}")
 
 st.divider()
 st.markdown(
     "**Kiểm thử thủ công trên app chính:** (1) Kích hoạt khi chưa có ảnh; (2) tải ảnh lá thật; "
     "(3) tải ảnh không phải lá, rủi ro phải là *CHƯA XÁC ĐỊNH*; (4) hỏi chat hai câu nối tiếp để kiểm tra trí nhớ; "
     "(5) đổi ảnh khác mà chưa Kích hoạt, app phải hiện cảnh báo."
-)
+    )
