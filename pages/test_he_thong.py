@@ -163,7 +163,7 @@ except Exception:
 st.write("Khóa trong Secrets:", "✅ có" if secret_key else "❌ chưa có")
 typed_key = st.text_input("Hoặc nhập khóa tạm để thử (không được lưu)", type="password")
 api_key = typed_key or secret_key
-model_name = st.text_input("Mô hình dùng để thử", value="gemini-3.8-flash")
+model_name = st.text_input("Mô hình dùng để thử", value="gemini-3.6-flash")
 
 
 class LeafDiagnosis(BaseModel):
