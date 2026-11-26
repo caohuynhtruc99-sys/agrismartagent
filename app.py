@@ -1,4 +1,3 @@
-
 import os
 import json
 from datetime import datetime
@@ -402,7 +401,10 @@ def manual_vision():
 inputs_now = {"crop": crop_type, "area": area_ha, "soil": soil_moisture, "temp": temp_c, "hum": air_humidity, "rain": rain_forecast}
 preview = run_agent(inputs_now, st.session_state.get("last_vision") if leaf_image and st.session_state.get("last_vision") else manual_vision())
 
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("Độ ẩm đất", f"{soil_moisture}%", f"{round(soil_moisture - preview['irr']['target_moisture_percent'], 1)}% so với chuẩn")
-m2.metric("Khí hậu vườn", f"{temp_c}°C", f"Ẩm KK {air_humidity}%")
-m3.metric("Nước tưới đề xuất", f"{preview['irr']['recommended_water_m3']} m³", f"{preview['irr']['durat
+irr_p = preview["irr"]
+eco_p = preview["eco"]
+water_txt = str(irr_p["recommended_water_m3"]) + " m³"
+min_txt = str(irr_p["duration_minutes"]) + " phút mở van"
+gap_txt = str(round(soil_moisture - irr_p["target_moisture_percent"], 1)) + "% so với chuẩn"
+gain_txt = str(eco_p["economic_gain_trieu_vnd"]) + " Tr"
+tons_txt = "+" + str(eco
