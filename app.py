@@ -59,6 +59,7 @@ CROP_DATABASE = {
     },
 }
 
+
 # ==========================================
 # 2. HÀM XỬ LÝ LOGIC NÔNG HỌC & GEMINI AI
 # ==========================================
@@ -370,4 +371,3 @@ st.markdown(
     """,
     unsafe_allow_html=True,
         )
-            
