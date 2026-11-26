@@ -1,6 +1,7 @@
 import os
 import json
 import hashlib
+import re
 import streamlit as st
 from PIL import Image
 from google import genai
@@ -9,7 +10,7 @@ from pydantic import BaseModel, Field
 from core import *  # noqa: F401,F403
 
 st.set_page_config(
-    page_title="Agri-Smart AI Agent | Cao Huỳnh Trực",
+    page_title="Agri-Smart AI Agent | Nhóm 7",
     page_icon="🌱",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -21,7 +22,7 @@ st.markdown(CSS_BLOCK, unsafe_allow_html=True)
 # THÔNG TIN TÁC GIẢ (MSSV chỉ đọc từ Secrets, KHÔNG ghi trong code)
 # Muốn hiện MSSV: thêm vào Secrets  STUDENT_ID = "..."  và  SHOW_STUDENT_ID = true
 # ==========================================
-AUTHOR = "Cao Huỳnh Trực"
+AUTHOR = "Nhóm 7"
 UNIVERSITY = "Trường Đại học Giao thông vận tải Thành phố Hồ Chí Minh"
 try:
     _sid = str(st.secrets.get("STUDENT_ID", ""))
@@ -43,7 +44,7 @@ try:
 except Exception:
     default_key = os.environ.get("GEMINI_API_KEY", "")
 
-FALLBACK_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]
+FALLBACK_MODELS = ["gemini-3.8-flash", "gemini-flash-latest"]
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -52,15 +53,22 @@ def fetch_flash_models(key: str) -> list[str]:
     try:
         c = genai.Client(api_key=key)
         found = []
-        blocked = ["embedding", "imagen", "veo", "aqa", "tts", "audio", "robotics", "computer", "image"]
+        blocked = ["embedding", "imagen", "veo", "aqa", "tts", "audio", "robotics", "computer", "image", "live", "native"]
         for m in c.models.list():
             name = getattr(m, "name", "").replace("models/", "")
             actions = getattr(m, "supported_actions", None) or []
             if "gemini" in name and "flash" in name and (not actions or "generateContent" in actions):
                 if not any(b in name for b in blocked):
                     found.append(name)
-        stable = [x for x in found if "preview" not in x and "exp" not in x]
-        preview = [x for x in found if x not in stable]
+        def ver(n):  # số phiên bản trong tên, vd gemini-3.8-flash -> 3.8
+            m = re.search(r"gemini-(\d+(?:\.\d+)?)", n)
+            return float(m.group(1)) if m else 0.0
+
+        def order(n):  # bản mới nhất trước, bản lite xếp sau
+            return (-ver(n), "lite" in n, n)
+
+        stable = sorted([x for x in found if "preview" not in x and "exp" not in x], key=order)
+        preview = sorted([x for x in found if x not in stable], key=order)
         return (stable + preview) or FALLBACK_MODELS
     except Exception:
         return FALLBACK_MODELS
@@ -73,7 +81,7 @@ with st.sidebar:
     model_choice = st.selectbox("Mô hình AI ưu tiên", available_models, index=0)
     st.caption("Đã nạp khóa từ Secrets." if default_key else "Nhập API Key để dùng Gemini.")
     st.divider()
-    st.markdown(f"**Tác giả:** {AUTHOR}  \n**Đơn vị:** {UNIVERSITY}")
+    st.markdown(f"**Nhóm thực hiện:** {AUTHOR}  \n**Đơn vị:** {UNIVERSITY}")
 
 using_shared_key = bool(default_key) and api_key == default_key
 
@@ -99,7 +107,7 @@ st.markdown(
         <div class="hero-badge">AI AGENT • IOT TELEMETRY • COMPUTER VISION</div>
         <div class="hero-title">🌱 AGRI-SMART AI AGENT</div>
         <div class="hero-sub">Tác tử AI: đọc cảm biến, chẩn đoán bệnh qua ảnh lá, điều phối tưới và giải thích quyết định</div>
-        <div class="author-pill">👨‍💻 Tác giả: <b>{AUTHOR}</b>{ID_TEXT}<br/>🎓 {UNIVERSITY}</div>
+        <div class="author-pill">👨‍💻 Nhóm thực hiện: <b>{AUTHOR}</b>{ID_TEXT}<br/>🎓 {UNIVERSITY}</div>
     </div>
     """,
     unsafe_allow_html=True,
@@ -118,7 +126,7 @@ class LeafDiagnosis(BaseModel):
 
 
 def candidate_models():
-    return list(dict.fromkeys([model_choice] + available_models[:3]))
+    return list(dict.fromkeys([model_choice] + available_models[:5]))
 
 
 def diagnose_image(client, img):
@@ -399,9 +407,8 @@ if user_q := st.chat_input("Hỏi thêm về lịch tưới, biện pháp phòng
 
 st.markdown(
     f"""
-    <div class="footer-vip">
-        <b>AGRI-SMART AI AGENT</b> — Hệ thống Điều phối Nông nghiệp Thông minh (sản phẩm học tập)<br/>
-        Phát triển bởi: <b>{AUTHOR}</b>{ID_TEXT}<br/>{UNIVERSITY}
+    <div class="footer-vip"<b>AGRI-SMART AI AGENT</b> — Hệ thống Điều phối Nông nghiệp Thông minh (sản phẩm học tập)<br/>
+        Nhóm thực hiện: <b>{AUTHOR}</b>{ID_TEXT}<br/>{UNIVERSITY}
     </div>
     """,
     unsafe_allow_html=True,
