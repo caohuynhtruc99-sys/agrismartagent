@@ -6,6 +6,7 @@ from PIL import Image
 from google import genai
 from google.genai import types
 from pydantic import BaseModel, Field
+from core import *  # noqa: F401,F403
 
 st.set_page_config(
     page_title="Agri-Smart AI Agent | Cao Huỳnh Trực",
@@ -17,73 +18,7 @@ st.set_page_config(
 # ==========================================
 # CSS TÙY CHỈNH GIAO DIỆN VIP PRO
 # ==========================================
-st.markdown(
-    """
-    <style>
-    .hero-box {
-        background: linear-gradient(135deg, #064e3b 0%, #0f766e 50%, #1e3a8a 100%);
-        padding: 24px 28px;
-        border-radius: 16px;
-        border: 1px solid rgba(52, 211, 153, 0.35);
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
-        margin-bottom: 18px;
-    }
-    .hero-badge {
-        display: inline-block;
-        background: rgba(16, 185, 129, 0.2);
-        color: #6ee7b7;
-        font-size: 12px;
-        font-weight: 700;
-        letter-spacing: 0.8px;
-        padding: 4px 12px;
-        border-radius: 999px;
-        border: 1px solid rgba(110, 231, 183, 0.4);
-        margin-bottom: 10px;
-    }
-    .hero-title {
-        color: #ffffff;
-        font-size: 28px;
-        font-weight: 800;
-        margin: 0 0 6px 0;
-        letter-spacing: 0.4px;
-    }
-    .hero-sub {
-        color: #d1fae5;
-        font-size: 14px;
-        margin: 0 0 14px 0;
-    }
-    .author-pill {
-        display: inline-block;
-        background: rgba(15, 23, 42, 0.55);
-        color: #f8fafc;
-        font-size: 13px;
-        line-height: 1.5;
-        padding: 8px 14px;
-        border-radius: 10px;
-        border-left: 4px solid #34d399;
-    }
-    .section-card {
-        background: rgba(30, 41, 59, 0.45);
-        border: 1px solid rgba(148, 163, 184, 0.2);
-        border-radius: 14px;
-        padding: 14px 18px;
-        margin-bottom: 12px;
-    }
-    .footer-vip {
-        margin-top: 32px;
-        padding: 16px 20px;
-        border-radius: 14px;
-        background: linear-gradient(90deg, rgba(6, 78, 59, 0.45), rgba(30, 58, 138, 0.45));
-        border: 1px solid rgba(52, 211, 153, 0.25);
-        text-align: center;
-        color: #e2e8f0;
-        font-size: 13px;
-        line-height: 1.6;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+st.markdown(CSS_BLOCK, unsafe_allow_html=True)
 
 # Đặt True nếu muốn hiện MSSV trên trang công khai (khuyến nghị để False).
 SHOW_STUDENT_ID = False
@@ -146,139 +81,6 @@ st.markdown(
 )
 
 # ==========================================================================
-# 1. MÔ HÌNH TÍNH TOÁN (xác định, kiểm chứng được). MỌI CON SỐ ĐỀU TỪ ĐÂY,
-#    Gemini KHÔNG được tự bịa số. Các hằng số là GIẢ ĐỊNH MINH HỌA, không phải đo thực.
-# ==========================================================================
-
-# crop: (độ ẩm mục tiêu %, chiều sâu rễ m, năng suất tấn/ha, giá triệu VNĐ/tấn)
-CROPS = {
-    "Lúa nước": {"target": 75.0, "root_m": 0.20, "yield_t_ha": 6.8, "price": 7.5},
-    "Cà chua": {"target": 65.0, "root_m": 0.40, "yield_t_ha": 35.0, "price": 12.0},
-    "Cà phê Robusta": {"target": 60.0, "root_m": 0.60, "yield_t_ha": 3.2, "price": 95.0},
-    "Sầu riêng": {"target": 65.0, "root_m": 0.80, "yield_t_ha": 14.0, "price": 65.0},
-}
-AWC_MM_PER_M = 120.0          # nước hữu dụng của đất thịt, mm nước / m đất
-IRRIGATION_EFFICIENCY = 0.90  # hiệu suất tưới nhỏ giọt
-RAIN_EFFICIENCY = 0.80        # tỉ lệ mưa thấm hữu hiệu
-HEAVY_RAIN_MM = 20.0          # mưa lớn: hoãn tưới
-DRIP_FLOW_M3_H_PER_HA = 10.0  # lưu lượng hệ thống tưới / ha
-MIN_OPEN_M3 = 10.0            # dưới ngưỡng này không mở van
-MAX_LOSS_AT_RISK_100 = 0.30   # giả định: rủi ro 100/100 mà không xử lý thì mất 30% năng suất
-DISEASE_PROTECTION = 0.70     # giả định: xử lý kịp thời cứu được 70% phần thiệt hại
-DROUGHT_LOSS_PER_DEFICIT = 0.50  # giả định: thiếu nước 20% -> mất 10% năng suất
-IRRIGATION_PROTECTION = 0.90
-
-
-def calculate_irrigation(crop_type, area_ha, soil_moisture, temp_c, rain_forecast_mm):
-    """Lượng nước tưới (m3) = thiếu hụt ẩm x nước hữu dụng x chiều sâu rễ x diện tích, hiệu chỉnh theo
-    nhiệt độ, trừ mưa hữu hiệu, chia hiệu suất tưới. Không tưới nếu đất đã đủ ẩm hoặc mưa lớn."""
-    p = CROPS.get(crop_type, CROPS["Cà chua"])
-    target = p["target"]
-    deficit = max(0.0, target - soil_moisture)
-    heat = 1.25 if temp_c >= 38 else (1.15 if temp_c >= 32 else 1.0)
-    need_m3 = deficit / 100.0 * AWC_MM_PER_M * p["root_m"] * 10.0 * area_ha * heat
-    rain_m3 = rain_forecast_mm * 10.0 * RAIN_EFFICIENCY * area_ha  # 1 mm = 10 m3/ha
-    net = max(0.0, (need_m3 - rain_m3) / IRRIGATION_EFFICIENCY)
-    if deficit == 0:
-        reason = f"Độ ẩm đất {soil_moisture:g}% đã đạt/vượt mục tiêu {target:g}% nên không cần tưới."
-        net = 0.0
-    elif rain_forecast_mm >= HEAVY_RAIN_MM:
-        reason = f"Dự báo mưa {rain_forecast_mm:g} mm (>= {HEAVY_RAIN_MM:g} mm) nên hoãn tưới, theo dõi lại sau mưa."
-        net = 0.0
-    elif net < MIN_OPEN_M3:
-        reason = f"Lượng nước cần sau khi trừ mưa chỉ {net:.1f} m3 (< {MIN_OPEN_M3:g} m3) nên chưa mở van."
-        net = 0.0
-    else:
-        reason = f"Đất thiếu {deficit:g} điểm % so với mục tiêu {target:g}%, mưa dự báo bù được {min(rain_m3, need_m3):.1f} m3."
-    water = round(net, 1)
-    open_valve = water >= MIN_OPEN_M3
-    return {
-        "recommended_water_m3": water,
-        "valve_action": "OPEN_DRIP_VALVE" if open_valve else "STANDBY",
-        "duration_minutes": int(round(water / (DRIP_FLOW_M3_H_PER_HA * area_ha) * 60)) if open_valve else 0,
-        "target_moisture_percent": target,
-        "moisture_deficit_points": round(deficit, 1),
-        "reason": reason,
-    }
-
-
-def evaluate_disease_risk(disease_name, severity_percent, air_humidity, is_healthy=False):
-    """Điểm rủi ro = mức nghiêm trọng x 1,3 nếu ẩm không khí >= 80% (nấm bệnh phát triển mạnh), tối đa 98."""
-    if is_healthy or severity_percent <= 10:
-        return {"risk_level": "THẤP", "risk_score": min(10, int(severity_percent)), "action_window_hours": 72,
-                "protocol": "Cây sinh trưởng ổn định. Duy trì bón phân cân đối và theo dõi định kỳ."}
-    mult = 1.3 if air_humidity >= 80.0 else 1.0
-    score = min(98, int(round(severity_percent * mult)))
-    level = "CAO" if score >= 70 else "TRUNG BÌNH"
-    window = 12 if score >= 70 else 24
-    return {
-        "risk_level": level, "risk_score": score, "action_window_hours": window,
-        "protocol": (f"Ưu tiên xử lý '{disease_name}' trong {window}h tới: tỉa lá bệnh nặng, hạn chế tưới phun lên tán "
-                     f"khi ẩm độ không khí cao ({air_humidity:g}%). Chọn thuốc theo hướng dẫn của cán bộ khuyến nông/BVTV."),
-    }
-
-
-def forecast_economics(crop_type, area_ha, risk_score, moisture_deficit_points, target, irrigated):
-    """ƯỚC TÍNH: sản lượng tránh mất = năng suất x diện tích x (thiệt hại do bệnh x 70% + thiệt hại do thiếu nước x 90%)."""
-    p = CROPS.get(crop_type, CROPS["Cà chua"])
-    base = p["yield_t_ha"] * area_ha
-    disease_loss = risk_score / 100.0 * MAX_LOSS_AT_RISK_100
-    drought_loss = min(0.30, moisture_deficit_points / target * DROUGHT_LOSS_PER_DEFICIT) if target else 0.0
-    saved = base * (disease_loss * DISEASE_PROTECTION + (drought_loss * IRRIGATION_PROTECTION if irrigated else 0.0))
-    return {
-        "baseline_yield_tons": round(base, 2),
-        "saved_yield_tons": round(saved, 2),
-        "economic_gain_trieu_vnd": round(saved * p["price"], 1),
-        "note": "Ước tính theo giả định minh họa, không phải số liệu đo thực tế.",
-    }
-
-
-def validate_inputs(soil, temp, hum, rain):
-    w = []
-    if soil >= 95:
-        w.append(f"Độ ẩm đất {soil}% gần bão hòa: không tưới, kiểm tra thoát nước (nguy cơ úng, thối rễ).")
-    if soil >= 95 and rain == 0:
-        w.append("Đất bão hòa nhưng không có mưa: nên kiểm tra lại cảm biến hoặc hệ thống tưới đang rò rỉ.")
-    if soil <= 15:
-        w.append(f"Độ ẩm đất {soil}% rất thấp: kiểm tra cảm biến trước khi hành động.")
-    if temp >= 40:
-        w.append(f"Nhiệt độ {temp}°C cực đoan: ưu tiên tưới sáng sớm/chiều mát, theo dõi cây bị sốc nhiệt.")
-    if rain >= 50:
-        w.append(f"Dự báo mưa {rain} mm rất lớn: chuẩn bị thoát nước, hoãn phun thuốc.")
-    return w
-
-
-def run_agent(inp, vision):
-    """Vòng lặp tác tử: Nhận thức -> Gọi công cụ -> Quyết định -> Ghi vết. Trả về mọi số liệu + nhật ký."""
-    trace = []
-    warns = validate_inputs(inp["soil"], inp["temp"], inp["hum"], inp["rain"])
-    trace.append(("Nhận thức", f"Cảm biến: ẩm đất {inp['soil']}%, {inp['temp']}°C, ẩm KK {inp['hum']}%, mưa {inp['rain']} mm; "
-                  f"cây {inp['crop']} {inp['area']} ha."))
-    trace.append(("Nhận thức", f"Chẩn đoán ({vision['source']}): {vision['disease_name']}, mức nghiêm trọng {vision['severity']}%."))
-    for x in warns:
-        trace.append(("Kiểm tra dữ liệu", x))
-    irr = calculate_irrigation(inp["crop"], inp["area"], inp["soil"], inp["temp"], inp["rain"])
-    trace.append(("Công cụ calculate_irrigation", f"-> {irr['valve_action']}, {irr['recommended_water_m3']} m3. {irr['reason']}"))
-    dis = evaluate_disease_risk(vision["disease_name"], vision["severity"], inp["hum"], vision["healthy"])
-    trace.append(("Công cụ evaluate_disease_risk", f"-> rủi ro {dis['risk_level']} ({dis['risk_score']}/100), xử lý trong {dis['action_window_hours']}h."))
-    eco = forecast_economics(inp["crop"], inp["area"], dis["risk_score"], irr["moisture_deficit_points"],
-                             irr["target_moisture_percent"], irr["valve_action"] == "OPEN_DRIP_VALVE")
-    trace.append(("Công cụ forecast_economics", f"-> tránh mất {eco['saved_yield_tons']} tấn ≈ {eco['economic_gain_trieu_vnd']} triệu VNĐ (ước tính)."))
-    packet = {
-        "timestamp": datetime.now().isoformat(timespec="seconds"),
-        "crop": inp["crop"], "area_ha": inp["area"],
-        "command": {"valve_action": irr["valve_action"], "water_m3": irr["recommended_water_m3"],
-                    "duration_minutes": irr["duration_minutes"], "target_moisture_percent": irr["target_moisture_percent"]},
-        "disease": {"name": vision["disease_name"], "risk": dis["risk_level"], "risk_score": dis["risk_score"],
-                    "action_window_h": dis["action_window_hours"]},
-        "economics_estimate": {"saved_yield_tons": eco["saved_yield_tons"], "gain_trieu_vnd": eco["economic_gain_trieu_vnd"]},
-        "warnings": warns,
-    }
-    return {"inputs": inp, "vision": vision, "irr": irr, "dis": dis, "eco": eco, "warnings": warns,
-            "trace": trace, "packet": json.dumps(packet, ensure_ascii=False, indent=2)}
-
-
-# ==========================================================================
 # 2. GEMINI: CHỈ LÀM 2 VIỆC (đọc ảnh lá; viết lời giải thích). Số liệu do code cấp.
 # ==========================================================================
 
@@ -314,24 +116,6 @@ def diagnose_image(client, img):
         except Exception as e:
             last = str(e)[:160]
     return None, last
-
-
-def local_report(r):
-    irr, dis, eco, v, i = r["irr"], r["dis"], r["eco"], r["vision"], r["inputs"]
-    bt = chr(96) * 3
-    return (
-        f"### 1. Cảnh báo Chủ động & Chẩn đoán\n"
-        f"* **Đối tượng:** {i['crop']} ({i['area']} ha)\n* **Tình trạng:** {v['disease_name']} (nghiêm trọng ~{v['severity']}%)"
-        + (f"\n* **Dấu hiệu trên ảnh:** {v['evidence']}" if v.get("evidence") else "") + "\n"
-        f"* **Rủi ro:** **{dis['risk_level']}** ({dis['risk_score']}/100), xử lý trong **{dis['action_window_hours']} giờ**.\n\n"
-        f"### 2. Quyết định Tưới & Phác đồ\n"
-        f"* **Van:** `{irr['valve_action']}`, nước **{irr['recommended_water_m3']} m³**, mở **{irr['duration_minutes']} phút**.\n"
-        f"* **Lý do:** {irr['reason']}\n* **Phác đồ:** {dis['protocol']}\n\n"
-        f"### 3. Hiệu quả kinh tế (ƯỚC TÍNH)\n"
-        f"* Sản lượng tránh mất: **{eco['saved_yield_tons']} tấn** (trên nền {eco['baseline_yield_tons']} tấn)\n"
-        f"* Giá trị: **{eco['economic_gain_trieu_vnd']} triệu VNĐ**. {eco['note']}\n\n"
-        f"### 4. Gói tin JSON điều khiển IoT/PLC\n{bt}json\n{r['packet']}\n{bt}\n"
-    )
 
 
 def narrate(client, r):
@@ -407,4 +191,132 @@ water_txt = str(irr_p["recommended_water_m3"]) + " m³"
 min_txt = str(irr_p["duration_minutes"]) + " phút mở van"
 gap_txt = str(round(soil_moisture - irr_p["target_moisture_percent"], 1)) + "% so với chuẩn"
 gain_txt = str(eco_p["economic_gain_trieu_vnd"]) + " Tr"
-tons_txt = "+" + str(eco
+tons_txt = "+" + str(eco_p["saved_yield_tons"]) + " tấn"
+
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("Độ ẩm đất", str(soil_moisture) + "%", gap_txt)
+m2.metric("Khí hậu vườn", str(temp_c) + "°C", "Ẩm KK " + str(air_humidity) + "%")
+m3.metric("Nước tưới đề xuất", water_txt, min_txt)
+m4.metric("Bảo toàn kinh tế (ước tính)", gain_txt, tons_txt)
+
+# ==========================================
+# 4. KÍCH HOẠT AGENT
+# ==========================================
+if st.button("🚀 Kích hoạt AI Agent Phân tích & Điều phối", type="primary", use_container_width=True):
+    with st.spinner("AI Agent đang nhận thức, gọi công cụ và lập kế hoạch..."):
+        client = genai.Client(api_key=api_key) if api_key else None
+        err = ""
+        vision = None
+        if leaf_image is not None and client:
+            vision, err = diagnose_image(client, leaf_image)
+        if vision is None:
+            vision = manual_vision()
+            if leaf_image is not None:
+                err = (err or "Chưa có API key") + " | ảnh chưa được AI đọc, đang dùng triệu chứng nhập tay"
+        st.session_state["last_vision"] = vision if leaf_image is not None else None
+        result = run_agent(inputs_now, vision)
+        report, used, err2 = (None, "", "")
+        if client:
+            report, used, err2 = narrate(client, result)
+        if report:
+            mode = f"Gemini ({used}) diễn giải, số liệu do code tính"
+        else:
+            report, mode = local_report(result), "Agent cục bộ (dự phòng)"
+        st.session_state["result"] = result
+        st.session_state["agent_report"] = report
+        st.session_state["run_mode"] = mode
+        st.session_state["api_note"] = (err or err2)[:200]
+
+if "result" in st.session_state:
+    res = st.session_state["result"]
+    st.divider()
+    st.subheader(f"🧠 Trung tâm Điều hành AI — {st.session_state.get('run_mode', '')}")
+    if res["inputs"] != inputs_now:
+        st.warning("Bạn đã đổi thông số sau lần phân tích gần nhất. Bấm Kích hoạt lại để cập nhật báo cáo.")
+    if st.session_state.get("api_note"):
+        st.caption(f"Trạng thái kết nối API: {st.session_state['api_note']}")
+
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📋 Báo cáo", "🧭 Nhật ký suy luận", "📊 Biểu đồ", "🔌 Gói tin IoT / PLC", "📐 Giả định & công thức"])
+    with tab1:
+        st.markdown(st.session_state["agent_report"])
+        if res["vision"]["source"].startswith("Gemini"):
+            st.caption("Chẩn đoán ảnh do mô hình ngôn ngữ đa phương thức đưa ra, chỉ mang tính tham khảo; cần cán bộ BVTV xác nhận trước khi dùng thuốc.")
+    with tab2:
+        for step, text in res["trace"]:
+            st.markdown(f"**{step}:** {text}")
+    with tab3:
+        st.bar_chart({"Giá trị đo": {"Độ ẩm đất hiện tại (%)": res["inputs"]["soil"],
+                                      "Độ ẩm đất chuẩn (%)": res["irr"]["target_moisture_percent"],
+                                      "Độ ẩm không khí (%)": res["inputs"]["hum"],
+                                      "Nhiệt độ (°C)": res["inputs"]["temp"]}})
+    with tab4:
+        st.code(res["packet"], language="json")
+    with tab5:
+        st.markdown(
+            f"""
+**Nước tưới (m³)** = (Thiếu hụt ẩm % ÷ 100 × {AWC_MM_PER_M:g} mm/m × chiều sâu rễ × 10 × diện tích × hệ số nhiệt − mưa × 10 × {RAIN_EFFICIENCY:g} × diện tích) ÷ {IRRIGATION_EFFICIENCY:g}.
+Không mở van nếu đất đã đạt mục tiêu, mưa ≥ {HEAVY_RAIN_MM:g} mm, hoặc lượng nước < {MIN_OPEN_M3:g} m³.
+
+**Rủi ro bệnh** = mức nghiêm trọng × 1,3 (nếu ẩm không khí ≥ 80%), tối đa 98.
+
+**Sản lượng tránh mất** = năng suất × diện tích × (rủi ro/100 × {MAX_LOSS_AT_RISK_100:g} × {DISEASE_PROTECTION:g} + thiệt hại do thiếu nước × {IRRIGATION_PROTECTION:g} nếu có tưới).
+
+Các hằng số (năng suất, giá, nước hữu dụng, hệ số bảo vệ…) là **giả định minh họa** để demo, cần thay bằng số liệu thực của vườn/địa phương.
+"""
+        )
+        st.table({"Cây": list(CROPS.keys()),
+                  "Ẩm mục tiêu (%)": [c["target"] for c in CROPS.values()],
+                  "Rễ (m)": [c["root_m"] for c in CROPS.values()],
+                  "Năng suất (tấn/ha)": [c["yield_t_ha"] for c in CROPS.values()],
+                  "Giá (triệu/tấn)": [c["price"] for c in CROPS.values()]})
+
+# ==========================================
+# 5. HỎI ĐÁP NGỮ CẢNH (bám số liệu đã tính)
+# ==========================================
+st.divider()
+st.subheader("💬 Hỏi đáp Ngữ cảnh với Agri-Smart Agent")
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+if user_q := st.chat_input("Hỏi thêm về cách pha thuốc, lịch tưới hoặc thay đổi diện tích..."):
+    st.session_state.messages.append({"role": "user", "content": user_q})
+    with st.chat_message("user"):
+        st.markdown(user_q)
+    with st.chat_message("assistant"):
+        base = st.session_state.get("result", preview)
+        reply = None
+        if api_key:
+            client = genai.Client(api_key=api_key)
+            ctx = json.dumps({"inputs": base["inputs"], "irrigation": base["irr"], "disease_risk": base["dis"],
+                              "economics_estimate": base["eco"]}, ensure_ascii=False)
+            for m_name in candidate_models():
+                try:
+                    out = client.models.generate_content(
+                        model=m_name,
+                        contents=(f"Bạn là Agri-Smart Agent. Dữ liệu đã tính bằng code (không tự tính lại, không bịa số, "
+                                  f"nếu van STANDBY thì không khuyên mở van; nếu cần số mới hãy nói người dùng đổi thông số và bấm Kích hoạt lại):\n{ctx}\n\n"
+                                  f"Câu hỏi: {user_q}"),
+                        config=types.GenerateContentConfig(temperature=0.3),
+                    )
+                    reply = out.text
+                    break
+                except Exception:
+                    continue
+        if not reply:
+            reply = (f"Theo số liệu đã tính: van **{base['irr']['valve_action']}**, nước **{base['irr']['recommended_water_m3']} m³**, "
+                     f"rủi ro bệnh **{base['dis']['risk_level']}**. {base['irr']['reason']} (Chưa kết nối được Gemini để trả lời sâu hơn.)")
+        st.markdown(reply)
+        st.session_state.messages.append({"role": "assistant", "content": reply})
+
+st.markdown(
+    f"""
+    <div class="footer-vip">
+        <b>AGRI-SMART AI AGENT</b> — Hệ thống Điều phối Nông nghiệp Thông minh (sản phẩm học tập)<br/>
+        Phát triển bởi: <b>{AUTHOR}</b>{ID_TEXT}<br/>{UNIVERSITY}
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
