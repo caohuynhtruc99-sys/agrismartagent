@@ -185,7 +185,7 @@ st.markdown(
     <div class="header-box">
         <h2>🌱 Agri-Smart AI Agent</h2>
         <p>Hệ thống Trợ lý Nông nghiệp Thông minh — Tối ưu Tưới tiêu & Chẩn đoán Bệnh hại Cây trồng</p>
-        <p style="margin-top: 6px; font-weight: 600;">👨‍🎓 Tác giả: Cao Huỳnh Trực | 🏫 Đại học Giao thông Vận tải TP.HCM</p>
+        <p style="margin-top: 6px; font-weight: 600;">👨‍🎓 Tác giả: Nhóm 7 | 🏫 Trường Đại học Giao thông Vận tải TP.HCM (UTH)</p>
     </div>
     """,
     unsafe_allow_html=True,
@@ -340,7 +340,7 @@ with tab_chat:
             st.markdown(user_question)
 
         chat_prompt = f"""
-        Bạn là Trợ lý Nông nghiệp Thông minh Agri-Smart AI Agent (phát triển bởi sinh viên Cao Huỳnh Trực - ĐH Giao thông Vận tải TP.HCM).
+        Bạn là Trợ lý Nông nghiệp Thông minh Agri-Smart AI Agent (phát triển bởi sinh viên Nhóm 7- Trường ĐH Giao thông Vận tải TP.HCM).
         Bối cảnh canh tác hiện tại:
         - Cây trồng: {selected_crop}
         - Độ ẩm đất: {soil_moisture}%, Nhiệt độ: {air_temp}°C, Độ ẩm không khí: {air_humidity}%
@@ -365,7 +365,7 @@ with tab_chat:
 st.markdown(
     """
     <div class="footer-box">
-        <strong>Agri-Smart AI Agent</strong> • Phát triển bởi <strong>Cao Huỳnh Trực</strong> — Trường Đại học Giao thông Vận tải TP.HCM (UTH)
+        <strong>Agri-Smart AI Agent</strong> • Phát triển bởi <strong>Nhóm 7</strong> — Trường Đại học Giao thông Vận tải TP.HCM (UTH)
     </div>
     """,
     unsafe_allow_html=True,
