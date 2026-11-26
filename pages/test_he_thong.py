@@ -163,7 +163,7 @@ except Exception:
 st.write("Khóa trong Secrets:", "✅ có" if secret_key else "❌ chưa có")
 typed_key = st.text_input("Hoặc nhập khóa tạm để thử (không được lưu)", type="password")
 api_key = typed_key or secret_key
-model_name = st.text_input("Mô hình dùng để thử", value="gemini-2.5-flash")
+model_name = st.text_input("Mô hình dùng để thử", value="gemini-3.8-flash")
 
 
 class LeafDiagnosis(BaseModel):
@@ -268,4 +268,4 @@ st.markdown(
     "**Kiểm thử thủ công trên app chính:** (1) Kích hoạt khi chưa có ảnh; (2) tải ảnh lá thật; "
     "(3) tải ảnh không phải lá, rủi ro phải là *CHƯA XÁC ĐỊNH*; (4) hỏi chat hai câu nối tiếp để kiểm tra trí nhớ; "
     "(5) đổi ảnh khác mà chưa Kích hoạt, app phải hiện cảnh báo."
-    )
+        )
