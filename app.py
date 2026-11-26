@@ -2,6 +2,7 @@ import os
 import json
 import hashlib
 import re
+import time
 import streamlit as st
 from PIL import Image
 from google import genai
@@ -129,11 +130,24 @@ def candidate_models():
     return list(dict.fromkeys([model_choice] + available_models[:5]))
 
 
+def generate(client, **kw):
+    """Gọi generate_content, tự thử lại 1 lần nếu mô hình đang quá tải (503 UNAVAILABLE)."""
+    for attempt in range(2):
+        try:
+            return client.models.generate_content(**kw)
+        except Exception as e:
+            msg = str(e)
+            if attempt == 0 and ("503" in msg or "UNAVAILABLE" in msg):
+                time.sleep(2)
+                continue
+            raise
+
+
 def diagnose_image(client, img):
     last = ""
     for m_name in candidate_models():
         try:
-            res = client.models.generate_content(
+            res = generate(client, 
                 model=m_name,
                 contents=[img, "Bạn là chuyên gia bảo vệ thực vật. Quan sát ảnh lá cây và chẩn đoán. Nếu ảnh không rõ hoặc không phải lá cây, "
                                "đặt is_healthy=false, disease_name='Không xác định (ảnh không rõ)', severity_percent=0."],
@@ -166,7 +180,7 @@ def narrate(client, r):
     last = ""
     for m_name in candidate_models():
         try:
-            res = client.models.generate_content(model=m_name, contents=prompt,
+            res = generate(client, model=m_name, contents=prompt,
                                                  config=types.GenerateContentConfig(temperature=0.2))
             if res.text:
                 bt = chr(96) * 3
@@ -383,7 +397,7 @@ if user_q := st.chat_input("Hỏi thêm về lịch tưới, biện pháp phòng
             history = build_history(st.session_state.messages)
             for m_name in candidate_models():
                 try:
-                    out = client.models.generate_content(
+                    out = generate(client, 
                         model=m_name,
                         contents=history,
                         config=types.GenerateContentConfig(
@@ -400,14 +414,15 @@ if user_q := st.chat_input("Hỏi thêm về lịch tưới, biện pháp phòng
             st.info(f"Đã hết {MAX_CHATS_PER_SESSION} lượt chat dùng chung khóa API trong phiên này. "
                     "Nhập API Key riêng ở thanh bên để tiếp tục.")
         if not reply:
-            reply = (f"Theo số liệu đã tính: van **{base['irr']['valve_action']}**, nước **{base['irr']['recommended_water_m3']} m³**, "
+            reply = (f"Theo số liệu đã tính:van **{base['irr']['valve_action']}**, nước **{base['irr']['recommended_water_m3']} m³**, "
                      f"rủi ro bệnh **{base['dis']['risk_level']}**. {base['irr']['reason']} (Chưa kết nối được Gemini để trả lời sâu hơn.)")
         st.markdown(reply)
         st.session_state.messages.append({"role": "assistant", "content": reply})
 
 st.markdown(
     f"""
-    <div class="footer-vip"<b>AGRI-SMART AI AGENT</b> — Hệ thống Điều phối Nông nghiệp Thông minh (sản phẩm học tập)<br/>
+    <div class="footer-vip">
+        <b>AGRI-SMART AI AGENT</b> — Hệ thống Điều phối Nông nghiệp Thông minh (sản phẩm học tập)<br/>
         Nhóm thực hiện: <b>{AUTHOR}</b>{ID_TEXT}<br/>{UNIVERSITY}
     </div>
     """,
