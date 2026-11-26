@@ -173,6 +173,19 @@ class LeafDiagnosis(BaseModel):
     evidence: str = Field(description="Dấu hiệu nhìn thấy trên ảnh, 1-2 câu")
 
 
+def generate(client, **kw):
+    """Gọi generate_content, tự thử lại 1 lần nếu mô hình đang quá tải (503 UNAVAILABLE)."""
+    for attempt in range(2):
+        try:
+            return client.models.generate_content(**kw)
+        except Exception as e:
+            msg = str(e)
+            if attempt == 0 and ("503" in msg or "UNAVAILABLE" in msg):
+                time.sleep(2)
+                continue
+            raise
+
+
 def make_test_leaf():
     """Ảnh giả lập: lá xanh có vài đốm nâu (chỉ để thử đường truyền, không đánh giá độ chính xác)."""
     img = Image.new("RGB", (400, 400), (235, 235, 235))
@@ -206,14 +219,14 @@ if st.button("▶️ Chạy kiểm thử Gemini", use_container_width=True):
         if client:
             try:
                 t0 = time.time()
-                out = client.models.generate_content(model=model_name, contents="Trả lời đúng một từ: OK")
+                out = generate(client, model=model_name, contents="Trả lời đúng một từ: OK")
                 results.append(("Gọi văn bản", bool(out.text), f"'{(out.text or '').strip()[:40]}' ({time.time() - t0:.1f}s)"))
             except Exception as e:
                 results.append(("Gọi văn bản", False, str(e)[:200]))
 
             try:
                 t0 = time.time()
-                res = client.models.generate_content(
+                res = generate(client, 
                     model=model_name,
                     contents=[make_test_leaf(), "Quan sát ảnh lá cây và chẩn đoán bệnh."],
                     config=types.GenerateContentConfig(response_mime_type="application/json",
@@ -247,7 +260,7 @@ if st.button("🔍 Dò mô hình dùng được", use_container_width=True):
             prog = st.progress(0.0)
             for i, n in enumerate(cands):
                 try:
-                    out = client.models.generate_content(model=n, contents="Trả lời đúng một từ: OK")
+                    out = generate(client, model=n, contents="Trả lời đúng một từ: OK")
                     ok = bool(out.text)
                     rows.append({"Mô hình": n, "Kết quả": "✅ DÙNG ĐƯỢC" if ok else "❌ rỗng", "Ghi chú": (out.text or "").strip()[:30]})
                 except Exception as e:
@@ -268,4 +281,4 @@ st.markdown(
     "**Kiểm thử thủ công trên app chính:** (1) Kích hoạt khi chưa có ảnh; (2) tải ảnh lá thật; "
     "(3) tải ảnh không phải lá, rủi ro phải là *CHƯA XÁC ĐỊNH*; (4) hỏi chat hai câu nối tiếp để kiểm tra trí nhớ; "
     "(5) đổi ảnh khác mà chưa Kích hoạt, app phải hiện cảnh báo."
-        )
+)
