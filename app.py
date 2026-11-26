@@ -371,3 +371,41 @@ st.markdown(
     """,
     unsafe_allow_html=True,
         )
+import streamlit as st
+from google import genai
+
+MODEL = "gemini-3.5-flash-lite"
+
+st.set_page_config(page_title="Smart Agent", page_icon="🤖")
+st.title("🤖 Smart Agent")
+
+client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+for m in st.session_state.messages:
+    with st.chat_message(m["role"]):
+        st.markdown(m["content"])
+
+if prompt := st.chat_input("Nhập câu hỏi..."):
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    with st.chat_message("assistant"):
+        try:
+            history = "\n".join(
+                f"{m['role']}: {m['content']}" for m in st.session_state.messages
+            )
+            response = client.models.generate_content(model=MODEL, contents=history)
+            answer = response.text
+        except Exception as e:
+            if "429" in str(e):
+                answer = "⚠️ Hết hạn mức tạm thời, đợi 1 phút rồi thử lại."
+            elif "503" in str(e):
+                answer = "⚠️ Model đang quá tải, thử lại sau ít giây."
+            else:
+                answer = f"⚠️ Lỗi: {e}"
+        st.markdown(answer)
+    st.session_state.messages.append({"role": "assistant", "content": answer})
